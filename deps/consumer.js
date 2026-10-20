@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-
-const mark = value => writeFileSync(2, `[consumer] ${value}\n`);
-process.on('exit', code => mark(`exit ${code}`));
-process.on('uncaughtExceptionMonitor', error => mark(error.stack));
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -27,15 +24,10 @@ delete env.DRAWCALL_WEBGPU_NATIVE;
 const directory = mkdtempSync(join(tmpdir(), 'webgpu consumer ü 渲染 '));
 
 function run(args, cwd, capture = false) {
-  mark(`start ${JSON.stringify(args)}`);
-  const result = spawnSync(process.execPath, args, {
+  return execFileSync(process.execPath, args, {
     cwd, env, encoding: 'utf8',
     stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
   });
-  mark(`done status=${result.status} signal=${result.signal} error=${result.error?.stack}`);
-  if (result.error) throw result.error;
-  assert.equal(result.status, 0, `Child failed: ${args}`);
-  return result.stdout;
 }
 
 try {
@@ -47,7 +39,7 @@ try {
   mkdirSync(consumer);
   writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   run([npm, 'install', '--ignore-scripts', '--save-exact', ...packages, `three@${three}`], consumer);
-  cpSync(join(root, 'test'), join(consumer, 'test'), {
+  await cp(join(root, 'test'), join(consumer, 'test'), {
     recursive: true,
     filter: source => !['out', '__pycache__'].includes(basename(source)),
   });
@@ -55,12 +47,8 @@ try {
     run(['test/ci.js', String(repetitions)], consumer);
   } finally {
     const output = join(consumer, 'test/out');
-    mark(`before copy ${output} -> ${join(root, 'test/out')}`);
-    if (existsSync(output)) cpSync(output, join(root, 'test/out'), { recursive: true });
-    mark('after copy');
+    if (existsSync(output)) await cp(output, join(root, 'test/out'), { recursive: true });
   }
 } finally {
-  mark('before cleanup');
   rmSync(directory, { recursive: true, force: true });
-  mark('after cleanup');
 }
