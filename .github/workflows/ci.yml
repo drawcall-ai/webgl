@@ -6,6 +6,9 @@ on:
   workflow_call:
   workflow_dispatch:
     inputs:
+      diagnose:
+        type: boolean
+        default: false
       platforms:
         description: Comma-separated native targets, or all
         default: all
@@ -15,6 +18,7 @@ permissions:
 
 jobs:
   plan:
+    if: ${{ !inputs.diagnose }}
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -188,3 +192,22 @@ jobs:
         with:
           name: node-${{ matrix.node }}-${{ matrix.platform.target }}
           path: test/out
+
+  diagnose:
+    if: ${{ inputs.diagnose }}
+    permissions:
+      contents: read
+      actions: read
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-win32-x64
+          path: dist/win32-x64
+          run-id: 39506778134
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm run test:package -- dist/win32-x64 --repetitions 1
