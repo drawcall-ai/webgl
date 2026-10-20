@@ -17,6 +17,10 @@ SOURCES = {
         "https://codeload.github.com/KhronosGroup/glslang/tar.gz/1062752a891c95b2bfeed9e356562d88f9df84ac",
         "46a05bba7675a3ab1912a0908183b9eee8daa06bb8047943bac54a6f0de2cfce",
     ),
+    "directx": (
+        "https://codeload.github.com/microsoft/DirectX-Headers/tar.gz/48a762973271c5a75869946bf1fdbc489a628a5c",
+        "7ee27f7662858719074b6a0a3ac91336e7645c4e255c29f33cc4335ee36fa51c",
+    ),
     "libdrm": (
         "https://dri.freedesktop.org/libdrm/libdrm-2.4.124.tar.xz",
         "ac36293f61ca4aafaf4b16a2a7afff312aa4f5c37c9fbd797de9e3c0863ca379",
@@ -109,7 +113,8 @@ def build(work, output, jobs):
         os.environ["PATH"] = str(Path(compiler).parent) + os.pathsep + os.environ["PATH"]
         os.environ.update(CC="cl", CXX="cl")
         options = ["-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
-    sources = {name: fetch(name, work) for name in SOURCES if name != "libdrm" or host == "Linux"}
+    sources = {name: fetch(name, work) for name in SOURCES
+               if (name != "libdrm" or host == "Linux") and (name != "directx" or host == "Windows")}
     cmake(sources["llvm"] / "llvm", work / "llvm-build", prefix, jobs, [
         f"-DLLVM_TARGETS_TO_BUILD={target}", "-DLLVM_BUILD_TOOLS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
         "-DLLVM_INCLUDE_EXAMPLES=OFF", "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_INCLUDE_DOCS=OFF",
@@ -143,20 +148,12 @@ def build(work, output, jobs):
         platform_options = ["-Dplatforms=", "-Dshader-cache=enabled", "-Dstrip=true",
                             "-Dc_link_args=" + exports, "-Dcpp_link_args=" + exports]
     if host == "Windows":
-        # Mesa's headless WSI uses POSIX clocks; its own C11 helper preserves
-        # monotonic timing on Windows without pulling in DirectX windowing.
-        headless = sources["mesa"] / "src/vulkan/wsi/wsi_common_headless.c"
-        text = headless.read_text()
-        for name in ("start_time", "current_time"):
-            original = f"clock_gettime(CLOCK_MONOTONIC, &{name});"
-            portable = f"timespec_get(&{name}, TIME_MONOTONIC);"
-            if text.count(original) == 1 and portable not in text:
-                text = text.replace(original, portable)
-            elif original in text or text.count(portable) != 1:
-                raise RuntimeError(f"Unexpected Mesa headless clock source: {name}")
-        headless.write_text(text)
-        platform_options = ["-Dplatforms=", "-Db_vscrt=mt", "-Dshader-cache=disabled",
-                            "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled"]
+        # Mesa25's Win32 WSI includes DirectX headers even for the CPU driver,
+        # but its dependency detection only enables them for hardware drivers.
+        headers = "/I" + (sources["directx"] / "include").as_posix()
+        platform_options = ["-Dplatforms=windows", "-Db_vscrt=mt", "-Dshader-cache=disabled",
+                            "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled",
+                            "-Dcpp_args=" + json.dumps([headers])]
     meson(sources["mesa"], work / "mesa-build", work / "installed", jobs, [
         "--native-file", tools, "--force-fallback-for=zlib", "-Dzlib:default_library=static",
         "-Dgallium-drivers=llvmpipe", "-Dvulkan-drivers=swrast",
@@ -179,8 +176,6 @@ def build(work, output, jobs):
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["mesa"] = {name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]} for name in sources}
-    if host == "Windows":
-        manifest["mesa"]["mesa"]["headless_clock_sha256"] = hashlib.sha256(headless.read_bytes()).hexdigest()
     manifest.setdefault("libraries", {})[driver] = hashlib.sha256((output / driver).read_bytes()).hexdigest()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     notices(sources.values(), output)
