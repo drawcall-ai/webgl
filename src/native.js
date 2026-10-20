@@ -26,11 +26,7 @@ function directory() {
 
 export function loadNative() {
   const dir = directory();
-  const icd = join(dir, 'lvp_icd.json');
-  if (!existsSync(icd)) throw new Error(`Missing software driver manifest: ${icd}`);
   const settings = {
-    VK_DRIVER_FILES: icd,
-    VK_ICD_FILENAMES: icd,
     LP_NUM_THREADS: '2',
     GALLIVM_PERF: 'nopt',
     // Cold processes cannot benefit from cross-render shader reuse. Disabling the

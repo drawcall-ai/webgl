@@ -114,7 +114,7 @@ def build(work, output, jobs=4):
                 "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
                 "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (Path(__file__).parent / name for name in
-                                    ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp"))}}
+                                    ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp", "driver.cpp"))}}
     manifest["libraries"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()
                              if p.suffix in {".node", ".dll", ".dylib", ".so"} or p.name.endswith(".so.1")}
     (output / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")

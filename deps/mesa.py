@@ -166,12 +166,6 @@ def build(work, output, jobs):
     if len(libraries) != 1:
         raise RuntimeError(f"Expected one installed lavapipe library, got {libraries}")
     shutil.copy2(libraries[0], output / driver)
-    icds = list((work / "installed/share/vulkan/icd.d").glob("lvp_icd*.json"))
-    if len(icds) != 1:
-        raise RuntimeError(f"Expected one installed lavapipe ICD, got {icds}")
-    icd = json.loads(icds[0].read_text())
-    icd["ICD"]["library_path"] = "./" + driver
-    (output / "lvp_icd.json").write_text(json.dumps(icd, indent=2) + "\n")
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["mesa"] = {name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]} for name in sources}

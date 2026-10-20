@@ -7,7 +7,8 @@ def patch(root):
     base = root / "src/dawn"
     names = ["node/interop/Browser.idl", "node/Module.cpp", "node/binding/GPUQueue.h",
              "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "native/vulkan/BackendVk.cpp",
-             "common/DynamicLib.cpp", "common/SystemUtils.cpp"]
+             "common/DynamicLib.cpp", "common/SystemUtils.cpp", "native/vulkan/BackendVk.h",
+             "native/vulkan/VulkanInfo.h", "native/vulkan/VulkanInfo.cpp"]
     sources = {}
     for name in names:
         path = base / name
@@ -49,6 +50,53 @@ def patch(root):
         }
 #endif  // DAWN_PLATFORM_IS(MACOS)
 """, "")
+    change("native/vulkan/BackendVk.h", "    DynamicLib mVulkanLib;",
+           "    DynamicLib mDriverLib;\n"
+           "    PFN_vkGetInstanceProcAddrLUNARG mDriverGetInstanceProcAddr = nullptr;\n"
+           "    DynamicLib mVulkanLib;")
+    change("native/vulkan/BackendVk.cpp",
+           "    DAWN_TRY_ASSIGN(mGlobalInfo, GatherGlobalInfo(mFunctions));",
+           (here / "driver.cpp").read_text().rstrip())
+    change("native/vulkan/BackendVk.cpp", "    std::vector<const char*> extensionNames;",
+           "    std::vector<const char*> extensionNames = {VK_LUNARG_DIRECT_DRIVER_LOADING_EXTENSION_NAME};")
+    change("native/vulkan/BackendVk.cpp", "    PNextChainBuilder createInfoChain(&createInfo);", """    PNextChainBuilder createInfoChain(&createInfo);
+    VkDirectDriverLoadingInfoLUNARG driverInfo = {};
+    driverInfo.sType = VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_INFO_LUNARG;
+    driverInfo.pfnGetInstanceProcAddr = mDriverGetInstanceProcAddr;
+    VkDirectDriverLoadingListLUNARG driverList = {};
+    driverList.mode = VK_DIRECT_DRIVER_LOADING_MODE_EXCLUSIVE_LUNARG;
+    driverList.driverCount = 1;
+    driverList.pDrivers = &driverInfo;
+    createInfoChain.Add(&driverList, VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_LIST_LUNARG);""")
+    change("native/vulkan/VulkanInfo.h",
+           "ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const VulkanFunctions& vkFunctions);",
+           "ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const VulkanFunctions& vkFunctions,\n"
+           "                                               const VulkanFunctions* driverFunctions = nullptr);")
+    change("native/vulkan/VulkanInfo.cpp",
+           "#include <cstring>", "#include <algorithm>\n#include <cstring>")
+    change("native/vulkan/VulkanInfo.cpp",
+           "ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const VulkanFunctions& vkFunctions) {",
+           "ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const VulkanFunctions& vkFunctions,\n"
+           "                                               const VulkanFunctions* driverFunctions) {")
+    change("native/vulkan/VulkanInfo.cpp", "    DAWN_INVALID_IF(info.apiVersion < kRequiredVulkanVersion,", """    if (driverFunctions != nullptr) {
+        uint32_t driverVersion = VK_API_VERSION_1_0;
+        DAWN_TRY(CheckVkSuccess(driverFunctions->EnumerateInstanceVersion(&driverVersion),
+                                "vkEnumerateInstanceVersion (bundled driver)"));
+        info.apiVersion = std::min(info.apiVersion, driverVersion);
+    }
+
+    DAWN_INVALID_IF(info.apiVersion < kRequiredVulkanVersion,""")
+    change("native/vulkan/VulkanInfo.cpp",
+           "        DAWN_TRY_ASSIGN(info.extensions, GatherInstanceExtensions(nullptr, vkFunctions, knownExts));",
+           """        DAWN_TRY_ASSIGN(info.extensions, GatherInstanceExtensions(nullptr, vkFunctions, knownExts));
+        if (driverFunctions != nullptr) {
+            bool loaderDebugUtils = info.extensions[InstanceExt::DebugUtils];
+            DAWN_TRY_ASSIGN(info.extensions,
+                            GatherInstanceExtensions(nullptr, *driverFunctions, knownExts));
+            // Other loader-advertised surface capabilities can belong to unrelated system ICDs.
+            info.extensions.set(InstanceExt::DebugUtils,
+                                loaderDebugUtils || info.extensions[InstanceExt::DebugUtils]);
+        }""")
     change("common/DynamicLib.cpp", """#if DAWN_PLATFORM_IS(WINUWP)
 #include "src/dawn/common/WindowsUtils.h"
 #endif""", '#include "src/dawn/common/WindowsUtils.h"')

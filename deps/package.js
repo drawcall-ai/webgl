@@ -20,7 +20,7 @@ const manifest = {
   os: [process.platform],
   cpu: [process.arch],
   ...(process.platform === 'linux' ? { libc: ['glibc'] } : {}),
-  files: ['dawn.node', '*.so*', '*.dylib', '*.dll', '*_icd.json', 'build.json', '*NOTICES', 'LICENSE'],
+  files: ['dawn.node', '*.so*', '*.dylib', '*.dll', 'build.json', '*NOTICES', 'LICENSE'],
 };
 writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 for (const file of ['LICENSE', 'THIRD_PARTY_NOTICES']) {
