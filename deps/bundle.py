@@ -29,6 +29,10 @@ def copyright_files(source):
     if shutil.which("rpm"):
         files = capture("rpm", "-q", "--licensefiles", "-f", Path(source).resolve()).splitlines()
         if not files:
+            documents = capture("rpm", "-q", "--docfiles", "-f", Path(source).resolve()).splitlines()
+            files = [path for path in documents
+                     if re.match(r"^(copying|copyright|licen[cs]e)([._-]|$)", Path(path).name, re.IGNORECASE)]
+        if not files:
             raise RuntimeError(f"No RPM license files for {source}")
         return {Path(path) for path in files}
     paths = {source, str(Path(source).resolve())}
