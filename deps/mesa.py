@@ -28,8 +28,8 @@ SOURCES = {
 }
 
 
-def run(*args):
-    subprocess.run([str(arg) for arg in args], check=True)
+def run(*args, cwd=None):
+    subprocess.run([str(arg) for arg in args], check=True, cwd=cwd)
 
 
 def fetch(name, work):
@@ -56,7 +56,7 @@ def fetch(name, work):
         if tar is None:
             raise RuntimeError("Git for Windows GNU tar is required to extract LLVM")
         options = ["--force-local"]
-    run(tar, *options, "-xf", archive, "--strip-components=1", "-C", destination, *members)
+    run(tar, *options, "-xf", archive.name, "--strip-components=1", "-C", destination.name, *members, cwd=work)
     archive.unlink()
     stamp.write_text(checksum)
     return destination
