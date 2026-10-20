@@ -1,16 +1,11 @@
-name: Publish Packages
-
-# On a release tag (v1.2.3): builds and tests every platform (ci.yml), then publishes the five
-# platform packages and the main package, all at the tag's version, via npm trusted publishing.
+name: Publish packages
 on:
   push:
-    tags:
-      - "v*"
+    tags: ['v*']
 
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
-
   publish:
     needs: ci
     runs-on: ubuntu-latest
@@ -24,24 +19,27 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
       - uses: actions/download-artifact@v4
-        with: { pattern: "package-*", path: dist }
+        with:
+          pattern: package-*
+          path: dist
       - name: Set release version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
           if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Expected a stable release tag such as v0.1.0" >&2
+            echo 'Expected a stable release tag such as v0.1.0' >&2
             exit 1
           fi
           npm pkg set version="$version"
-          for dir in dist/package-*; do
-            npm --prefix "$dir" pkg set version="$version"
-            npm pkg set "optionalDependencies.$(npm --prefix "$dir" pkg get name | tr -d '"')=$version"
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            mv "dist/package-$target" "dist/$target"
+            npm pkg set "optionalDependencies.@drawcall/webgpu-$target=$version"
+            npm --prefix "dist/$target" pkg set version="$version"
           done
-          npm pkg get version optionalDependencies
-      # Platform packages first: the main package depends on them.
-      - name: Publish platform packages
-        run: for dir in dist/package-*; do npm publish "./$dir" --access public --provenance --tag latest; done
-      - name: Publish main package
-        run: npm publish --access public --provenance --tag latest
+      - name: Publish native packages
+        run: |
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            npm publish "./dist/$target" --access public --provenance
+          done
+      - run: npm publish --access public --provenance

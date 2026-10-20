@@ -1,0 +1,118 @@
+"""Build the host's Vulkan Dawn binding: python native/build.py BUILD_DIR OUTPUT_DIR."""
+import argparse
+import hashlib
+import json
+import platform
+import shutil
+import subprocess
+from pathlib import Path
+
+from patch import patch
+
+DAWN = "77f9a9aa5f7180958480de17680c61a84c006842"
+GPUWEB = "22507c95ccb9e705eddc7cab8f28aa46b134f5fe"
+HEADERS = "d5cfe19da8b974ca35764dd1c73b91d57cd3c4ce"
+ADDON = "1e26dcb52829a74260ec262edb41fc22998669b6"
+
+
+def run(*args):
+    subprocess.run([str(arg) for arg in args], check=True)
+
+
+def fetch_archive(repository, commit, destination, cache):
+    stamp = destination / ".drawcall-commit"
+    if stamp.exists() and stamp.read_text() == commit:
+        return
+    archive = cache / (repository.replace("/", "-") + ".tar.gz")
+    run("curl", "-fL", "--retry", "3", f"https://codeload.github.com/{repository}/tar.gz/{commit}", "-o", archive)
+    staging = destination.with_name(destination.name + ".extracting")
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    run("tar", "-xzf", archive, "--strip-components=1", "-C", staging)
+    (staging / ".drawcall-commit").write_text(commit)
+    if destination.exists():
+        shutil.rmtree(destination)
+    staging.rename(destination)
+
+
+def target():
+    systems = {"Linux": "linux", "Darwin": "darwin", "Windows": "win32"}
+    architectures = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}
+    system = systems.get(platform.system())
+    architecture = architectures.get(platform.machine().lower())
+    name = f"{system}-{architecture}"
+    if name not in {"linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"}:
+        raise RuntimeError(f"Unsupported build host: {platform.system()} {platform.machine()}")
+    return name
+
+
+def build(work, output, jobs=4):
+    host = target()
+    swiftshader = not host.startswith("linux-")
+    if jobs < 1:
+        raise ValueError("Build jobs must be positive")
+    work.mkdir(parents=True, exist_ok=True)
+    output.mkdir(parents=True, exist_ok=True)
+    source = work / "dawn"
+    fetch_archive("google/dawn", DAWN, source, work)
+    fetch_archive("nodejs/node-api-headers", HEADERS, source / "third_party/node-api-headers", work)
+    fetch_archive("nodejs/node-addon-api", ADDON, source / "third_party/node-addon-api", work)
+    idl = source / "third_party/gpuweb/webgpu.idl"
+    idl.parent.mkdir(exist_ok=True)
+    run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
+    patch(source)
+    options = [f"-DDAWN_ENABLE_SWIFTSHADER={'ON' if swiftshader else 'OFF'}"]
+    if host.startswith("darwin-"):
+        options.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5")
+    if host == "win32-x64":
+        options.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
+    run("cmake", "-S", source, "-B", work / "build", "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_VISIBILITY_PRESET=hidden",
+        "-DCMAKE_VISIBILITY_INLINES_HIDDEN=1", "-DDAWN_BUILD_NODE_BINDINGS=ON",
+        "-DDAWN_FETCH_DEPENDENCIES=ON", "-DDAWN_USE_X11=OFF", "-DDAWN_USE_WAYLAND=OFF",
+        "-DDAWN_USE_WINDOWS_UI=OFF", "-DDAWN_ENABLE_VULKAN=ON",
+        "-DDAWN_ENABLE_METAL=OFF", "-DDAWN_ENABLE_D3D11=OFF", "-DDAWN_ENABLE_D3D12=OFF",
+        "-DDAWN_ENABLE_NULL=OFF",
+        "-DDAWN_BUILD_SAMPLES=OFF", "-DDAWN_BUILD_TESTS=OFF", "-DTINT_BUILD_TESTS=OFF",
+        "-DDAWN_ENABLE_OPENGLES=OFF", "-DDAWN_ENABLE_DESKTOP_GL=OFF", "-DDAWN_SUPPORTS_CXX_MODULES=OFF",
+        *options)
+    targets = ["dawn_node", "vk_swiftshader"] if swiftshader else ["dawn_node"]
+    run("cmake", "--build", work / "build", "--target", *targets, "--parallel", jobs)
+    binaries = list((work / "build").rglob("dawn.node"))
+    if len(binaries) != 1:
+        raise RuntimeError(f"Expected one Dawn binary, got {binaries}")
+    shutil.copy2(binaries[0], output / "dawn.node")
+    if swiftshader:
+        driver = "vk_swiftshader.dll" if host == "win32-x64" else "libvk_swiftshader.dylib"
+        drivers = list((work / "build").rglob(driver))
+        if len(drivers) != 1:
+            raise RuntimeError(f"Expected one SwiftShader library, got {drivers}")
+        shutil.copy2(drivers[0], output / driver)
+        icds = list((work / "build").rglob("vk_swiftshader_icd.json"))
+        if len(icds) != 1:
+            raise RuntimeError(f"Expected one SwiftShader ICD, got {icds}")
+        shutil.copy2(icds[0], output / "vk_swiftshader_icd.json")
+    manifest = {"target": host, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
+                "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
+                "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                          for p in (Path(__file__).parent / name for name in
+                                    ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp"))}}
+    (output / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    # Preserve dependency notices from the exact source tree CMake fetched.
+    licenses = [p for p in source.rglob("*") if p.is_file()
+                and (p.name.upper().startswith("LICENSE") or p.name.upper().startswith("COPYING") or p.name.upper().startswith("NOTICE"))
+                and p.suffix not in (".py", ".go", ".json", ".h", ".cc")]
+    with (output / "DAWN_NOTICES").open("w", encoding="utf-8") as notices:
+        for path in sorted(licenses):
+            notices.write(f"\n{'=' * 72}\n{path.relative_to(source)}\n\n")
+            notices.write(path.read_text(encoding="utf-8", errors="replace"))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("work", type=Path)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--jobs", type=int, default=4)
+    args = parser.parse_args()
+    build(args.work.resolve(), args.output.resolve(), args.jobs)

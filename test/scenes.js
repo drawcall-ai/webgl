@@ -1,17 +1,20 @@
-// The test scenes, shared verbatim by Node (render.js) and Chrome (reference.js). Each mirrors its
-// three.js example with animations frozen at t = 1 s for deterministic output.
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-// Scenes with a Chrome reference image. "empty" (only a clear) is the benchmark baseline.
+// Original-input scenes with browser WebGPU reference images.
 export const SCENES = ["pbr", "soldier", "tokyo"];
 export const WIDTH = 1280;
 export const HEIGHT = 720;
 
-async function loadGLB(loadBytes, path) {
-  const bytes = await loadBytes(path);
-  return new GLTFLoader().parseAsync(bytes, "");
+async function loadGLB(base, path) {
+  const draco = new DRACOLoader().setWorkerLimit(1).setDecoderPath(`${base}/node_modules/three/examples/jsm/libs/draco/gltf/`);
+  try {
+    return await new GLTFLoader().setDRACOLoader(draco).loadAsync(`${base}/test/${path}`);
+  } finally {
+    draco.dispose();
+  }
 }
 
 function roomEnvironment(renderer, sigma) {
@@ -22,13 +25,7 @@ function roomEnvironment(renderer, sigma) {
 }
 
 // Returns { scene, camera } ready for renderer.render().
-export async function buildScene(name, renderer, loadBytes, aspect) {
-  if (name === "empty") {
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
-    return { scene, camera: new THREE.PerspectiveCamera(45, aspect, 0.1, 10) };
-  }
-
+export async function buildScene(name, renderer, base, aspect) {
   if (name === "pbr") {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202428);
@@ -66,7 +63,7 @@ export async function buildScene(name, renderer, loadBytes, aspect) {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
-    const gltf = await loadGLB(loadBytes, "models/Soldier.glb");
+    const gltf = await loadGLB(base, "models/Soldier.glb");
     gltf.scene.traverse((o) => {
       if (o.isMesh) o.castShadow = true;
     });
@@ -84,7 +81,7 @@ export async function buildScene(name, renderer, loadBytes, aspect) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xbfe3dd);
     scene.environment = roomEnvironment(renderer, 0.04);
-    const gltf = await loadGLB(loadBytes, "models/LittlestTokyo.plain.glb");
+    const gltf = await loadGLB(base, "models/LittlestTokyo.glb");
     const model = gltf.scene;
     model.position.set(1, 1, 0);
     model.scale.set(0.01, 0.01, 0.01);
@@ -99,8 +96,4 @@ export async function buildScene(name, renderer, loadBytes, aspect) {
   }
 
   throw new Error(`unknown scene ${name}`);
-}
-
-export function rendererOptions(name) {
-  return { antialias: false, alpha: false, preserveDrawingBuffer: true, shadows: name === "soldier" };
 }

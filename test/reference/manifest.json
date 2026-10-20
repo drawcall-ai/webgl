@@ -1,0 +1,21 @@
+{
+  "three": "0.186.1",
+  "backend": "Chromium WebGPU SwiftShader",
+  "capture": "offscreen RenderTarget RGBA8 sRGB",
+  "models": {
+    "Soldier.glb": "dfb230fc1f942f259dd00281a1186953ad602fc5d69067ce63e24b2aa439736b",
+    "LittlestTokyo.glb": "8375c2aa6808e28ad1cb9c0d43e1513f57ffd7865244bf66bbbd5bb0e907e06d"
+  },
+  "pbr": {
+    "source": "standard-browser-20261020-153250-pbr-webgpu-0.png",
+    "sha256": "1a266c23c45d9b63f6e04af52926579ba4514a7cc3e888a4ebb45e7d9324164c"
+  },
+  "soldier": {
+    "source": "standard-browser-20261020-153250-soldier-webgpu-0.png",
+    "sha256": "028a55face284ca1f3e7738db631ae3a57b5cdadf25f8d43d444ac959f51836b"
+  },
+  "tokyo": {
+    "source": "standard-browser-20261020-153414-tokyo-webgpu-0.png",
+    "sha256": "9b6c52d51aba88d0b39cacc8116ef94593f461bd33d40c7ebb5701aefe0d658b"
+  }
+}

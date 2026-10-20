@@ -1,7 +1,5 @@
 node_modules/
-native/gl_gen.c
-native/webgl.node
-native/node.lib
-test/models/*.plain.glb
-test/out/
+build/
 dist/
+__pycache__/
+test/out/

@@ -1,34 +1,38 @@
 {
-  "name": "@drawcall/webgl",
+  "name": "@drawcall/webgpu",
   "version": "0.1.0",
-  "description": "Headless WebGL2 for Node.js on every machine, rendered on the CPU by ANGLE and Mesa lavapipe",
+  "description": "Cold Three.js rendering with native CPU WebGPU",
   "license": "MIT",
   "type": "module",
   "exports": "./src/index.js",
-  "files": ["src", "skills"],
-  "engines": { "node": ">=20" },
-  "repository": { "type": "git", "url": "git+https://github.com/drawcall-ai/webgl.git" },
+  "files": [
+    "src",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drawcall-ai/webgl.git"
+  },
   "scripts": {
-    "build:native": "native/build.sh",
-    "test": "node --test test/*.test.js",
-    "bench": "node test/bench.js"
+    "build:native": "modal run native/cloud.py",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:cloud": "modal run test/cloud.py",
+    "bench": "modal run test/cloud.py"
   },
   "dependencies": {
-    "sharp": "^0.34.5"
+    "sharp": "0.35.5"
   },
   "optionalDependencies": {
-    "@drawcall/webgl-darwin-arm64": "0.1.0",
-    "@drawcall/webgl-darwin-x64": "0.1.0",
-    "@drawcall/webgl-linux-arm64": "0.1.0",
-    "@drawcall/webgl-linux-x64": "0.1.0",
-    "@drawcall/webgl-win32-x64": "0.1.0"
+    "@drawcall/webgpu-linux-x64": "0.1.0",
+    "@drawcall/webgpu-linux-arm64": "0.1.0",
+    "@drawcall/webgpu-darwin-x64": "0.1.0",
+    "@drawcall/webgpu-darwin-arm64": "0.1.0",
+    "@drawcall/webgpu-win32-x64": "0.1.0"
   },
   "devDependencies": {
-    "@gltf-transform/core": "^4.5.1",
-    "@gltf-transform/extensions": "^4.5.1",
-    "draco3dgltf": "^1.5.7",
-    "pixelmatch": "^7.2.0",
-    "playwright-core": "^1.64.0",
     "three": "0.186.1"
   }
 }

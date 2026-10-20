@@ -1,64 +1,123 @@
-import { WebGL2RenderingContext } from "./context.js";
-import { native } from "./native.js";
-
-// A canvas with one WebGL2 context. Only one context can exist per process at a time.
-export class Canvas {
-  #width;
-  #height;
-  #context = null;
-  style = {};
-
-  constructor(width, height) {
-    this.#width = width;
-    this.#height = height;
-  }
-
-  get width() {
-    return this.#width;
-  }
-  set width(value) {
-    this.#resize(value, this.#height);
-  }
-  get height() {
-    return this.#height;
-  }
-  set height(value) {
-    this.#resize(this.#width, value);
-  }
-  #resize(width, height) {
-    if (width === this.#width && height === this.#height) return;
-    this.#width = width;
-    this.#height = height;
-    if (this.#context) native.resize(width, height);
-  }
-
-  getContext(type, attributes) {
-    if (type !== "webgl2") return null;
-    this.#context ??= new WebGL2RenderingContext(this, attributes);
-    return this.#context;
-  }
-
-  // The rendered frame as RGBA8, top row first, written into out (allocated when omitted). It waits
-  // for the frame to finish, which also lets the driver recycle per-frame resources: render loops that
-  // never wait for a frame grow memory with every frame.
-  readPixels(out = new Uint8Array(this.#width * this.#height * 4)) {
-    if (!this.#context) throw new Error("readPixels needs a context; call getContext('webgl2') first");
-    if (out.byteLength !== this.#width * this.#height * 4) throw new RangeError(`readPixels needs ${this.#width * this.#height * 4} bytes`);
-    native.readFrame(out);
-    return out;
-  }
-
-  // Releases the context so another canvas can create one.
-  destroy() {
-    native.destroyContext();
-    this.#context = null;
-  }
-
-  // three.js registers context-loss listeners; a headless context is never lost.
-  addEventListener() {}
-  removeEventListener() {}
+function dimension(value) {
+  if (!Number.isInteger(value) || value < 1) throw new RangeError('Canvas dimensions must be positive integers');
+  return value;
 }
 
-export function createCanvas(width, height) {
-  return new Canvas(width, height);
+// A native canvas keeps its last frame available until resize or reconfiguration.
+export function canvas(width, height, check) {
+  width = dimension(width);
+  height = dimension(height);
+  let configuration, texture, device, lost;
+  let closed = false;
+  const errors = [];
+  const events = new EventTarget();
+  const onError = event => errors.push(event.error);
+
+  function ready() {
+    check();
+    if (closed) throw new Error('Canvas is disposed');
+    if (lost) throw new Error(`Device lost: ${lost.reason}: ${lost.message}`);
+    if (errors.length) throw new AggregateError(errors, 'WebGPU rendering failed');
+  }
+
+  function reset() {
+    texture?.destroy();
+    texture = undefined;
+  }
+
+  const output = {
+    get width() { return width; },
+    set width(value) { ready(); width = dimension(value); reset(); },
+    get height() { return height; },
+    set height(value) { ready(); height = dimension(value); reset(); },
+    style: {},
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+    dispatchEvent: events.dispatchEvent.bind(events),
+    getContext(type) { ready(); return type === 'webgpu' ? context : null; },
+    /** Returns the current frame as packed, top-row-first RGBA8 bytes. */
+    async readPixels() {
+      ready();
+      if (!texture) throw new Error('Render a frame before reading canvas pixels');
+      const source = texture;
+      const rowBytes = source.width * 4;
+      const stride = Math.ceil(rowBytes / 256) * 256;
+      const buffer = device.createBuffer({ size: stride * source.height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      try {
+        const encoder = device.createCommandEncoder();
+        encoder.copyTextureToBuffer({ texture: source }, { buffer, bytesPerRow: stride }, [source.width, source.height]);
+        device.queue.submit([encoder.finish()]);
+        await buffer.mapAsync(GPUMapMode.READ);
+        ready();
+        const mapped = new Uint8Array(buffer.getMappedRange());
+        const pixels = new Uint8Array(rowBytes * source.height);
+        for (let row = 0; row < source.height; row++) {
+          pixels.set(mapped.subarray(row * stride, row * stride + rowBytes), row * rowBytes);
+        }
+        if (source.format === 'bgra8unorm') {
+          for (let index = 0; index < pixels.length; index += 4) {
+            const red = pixels[index + 2];
+            pixels[index + 2] = pixels[index];
+            pixels[index] = red;
+          }
+        }
+        return pixels;
+      } finally {
+        buffer.destroy();
+      }
+    },
+  };
+
+  const context = {
+    canvas: output,
+    configure(value) {
+      ready();
+      if (device && value.device !== device) throw new TypeError('A canvas cannot switch WebGPU devices');
+      if (!value.device || typeof value.device.createTexture !== 'function') throw new TypeError('A WebGPU device is required');
+      if ((value.colorSpace ?? 'srgb') !== 'srgb') throw new TypeError('Only sRGB canvas color space is supported');
+      if ((value.alphaMode ?? 'opaque') !== 'opaque') throw new TypeError('This offscreen canvas requires opaque alpha mode');
+      if ((value.toneMapping?.mode ?? 'standard') !== 'standard') throw new TypeError('Extended canvas tone mapping is not supported');
+      if (!['rgba8unorm', 'bgra8unorm'].includes(value.format)) throw new TypeError('Unsupported canvas format');
+      if (!device) {
+        device = value.device;
+        device.addEventListener('uncapturederror', onError);
+        device.lost.then(info => { if (!closed) lost = info; });
+      }
+      reset();
+      configuration = { ...value, viewFormats: [...(value.viewFormats ?? [])] };
+    },
+    getConfiguration() {
+      ready();
+      return configuration ? { ...configuration, viewFormats: [...configuration.viewFormats] } : null;
+    },
+    getCurrentTexture() {
+      ready();
+      if (!configuration) throw new Error('Canvas is not configured');
+      if (width > device.limits.maxTextureDimension2D || height > device.limits.maxTextureDimension2D) throw new RangeError('Canvas dimensions exceed the device texture limit');
+      texture ??= device.createTexture({
+        size: [width, height],
+        format: configuration.format,
+        usage: (configuration.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC,
+        viewFormats: configuration.viewFormats,
+      });
+      return texture;
+    },
+    unconfigure() { ready(); reset(); configuration = undefined; },
+  };
+
+  return {
+    output,
+    close() {
+      closed = true;
+      reset();
+      configuration = undefined;
+      if (device) {
+        device.removeEventListener('uncapturederror', onError);
+        // Three may already have destroyed its device. destroy() is idempotent.
+        device.destroy();
+      }
+      if (lost && lost.reason !== 'destroyed') errors.push(new Error(`Device lost: ${lost.reason}: ${lost.message}`));
+      if (errors.length) throw new AggregateError(errors, 'WebGPU rendering failed');
+    },
+  };
 }

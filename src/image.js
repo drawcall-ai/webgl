@@ -1,37 +1,59 @@
-// ImageBitmap and createImageBitmap for three.js loaders (GLTFLoader, ImageBitmapLoader).
+// Node image decoding for the platform boundary. Three's loaders remain untouched.
+import { globals } from './globals.js';
 
-let sharp;
-
-export class ImageBitmap {
-  #pixels;
-
-  constructor(width, height, pixels) {
-    this.width = width;
-    this.height = height;
-    this.#pixels = pixels; // RGBA8, top row first
+let sharpPromise;
+export function installImages(native) {
+  if (typeof native.createImageBitmapFromRGBA !== 'function') throw new Error('Native ImageBitmap bridge is unavailable');
+  const installed = globals();
+  let decoder, previousCache, closed = false;
+  const ImageBitmap = native.ImageBitmap ?? native.globals?.ImageBitmap;
+  if (!ImageBitmap) throw new Error('Native ImageBitmap constructor is unavailable');
+  async function createImageBitmap(source, options = {}) {
+    if (closed) throw new Error('Image decoder is disposed');
+    if (!(source instanceof Blob)) throw new TypeError('This Node image platform currently supports Blob input only');
+    if (arguments.length > 2) throw new TypeError('ImageBitmap cropping is not implemented');
+    const supported = new Set(['imageOrientation', 'premultiplyAlpha', 'colorSpaceConversion']);
+    for (const key of Object.keys(options)) if (!supported.has(key)) throw new TypeError(`Unsupported ImageBitmap option: ${key}`);
+    const orientation = options.imageOrientation ?? 'from-image';
+    const premultiply = options.premultiplyAlpha ?? 'default';
+    const conversion = options.colorSpaceConversion ?? 'default';
+    if (!['from-image', 'flipY', 'none'].includes(orientation)) throw new TypeError('Invalid imageOrientation');
+    if (!['none', 'premultiply', 'default'].includes(premultiply)) throw new TypeError('Invalid premultiplyAlpha');
+    if (!['none', 'default'].includes(conversion)) throw new TypeError('Invalid colorSpaceConversion');
+    sharpPromise ??= import('sharp').then(module => module.default);
+    const sharp = await sharpPromise;
+    if (closed) throw new Error('Image decoder is disposed');
+    if (!decoder) {
+      decoder = sharp;
+      const cache = sharp.cache();
+      previousCache = { memory: cache.memory.max, files: cache.files.max, items: cache.items.max };
+      sharp.cache(false);
+    }
+    let image = sharp(Buffer.from(await source.arrayBuffer()), { ignoreIcc: conversion === 'none' });
+    if (orientation !== 'none') image = image.autoOrient();
+    if (orientation === 'flipY') image = image.flip();
+    if (conversion === 'default') image = image.toColourspace('srgb');
+    const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (closed) throw new Error('Image decoder is disposed');
+    const premultipliedAlpha = premultiply === 'premultiply';
+    if (premultipliedAlpha) for (let i = 0; i < data.length; i += 4) {
+      data[i] = Math.round(data[i] * data[i + 3] / 255);
+      data[i + 1] = Math.round(data[i + 1] * data[i + 3] / 255);
+      data[i + 2] = Math.round(data[i + 2] * data[i + 3] / 255);
+    }
+    // The native object owns a copy; its lifetime is independent of Sharp/JS buffers.
+    return native.createImageBitmapFromRGBA(info.width, info.height, data, { premultipliedAlpha, colorSpace: 'srgb' });
   }
-
-  // RGBA8 pixels, top row first. Kept until close(): three.js may upload one image several times,
-  // once per distinct sampler configuration of the textures sharing it.
-  pixels() {
-    if (!this.#pixels) throw new Error("ImageBitmap is closed");
-    return this.#pixels;
+  try {
+    installed.set('createImageBitmap', createImageBitmap);
+    installed.set('ImageBitmap', ImageBitmap);
+  } catch (error) {
+    installed.restore();
+    throw error;
   }
-
-  close() {
-    this.#pixels = undefined;
-  }
-}
-
-// Decodes an encoded image (PNG, JPEG, WebP, ...) from a Blob. Honors imageOrientation: "flipY".
-export async function createImageBitmap(source, options = {}) {
-  if (!(source instanceof Blob)) throw new TypeError("createImageBitmap supports Blob sources only");
-  if (!sharp) {
-    sharp = (await import("sharp")).default;
-    sharp.cache(false); // decoded images go to the GPU; caching them in libvips only costs memory
-  }
-  let image = sharp(Buffer.from(await source.arrayBuffer())).ensureAlpha();
-  if (options.imageOrientation === "flipY") image = image.flip();
-  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
-  return new ImageBitmap(info.width, info.height, new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  return () => {
+    closed = true;
+    installed.restore();
+    if (decoder) decoder.cache(previousCache);
+  };
 }

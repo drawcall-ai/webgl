@@ -1,20 +1,55 @@
-// Loads the addon from the platform package (@drawcall/webgl-<platform>-<arch>), which also holds
-// ANGLE and the lavapipe driver. DRAWCALL_WEBGL_NATIVE points at a local build directory instead.
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const platformPackage = `@drawcall/webgl-${process.platform}-${process.arch}`;
 
-function nativeDir() {
-  if (process.env.DRAWCALL_WEBGL_NATIVE) return process.env.DRAWCALL_WEBGL_NATIVE;
+function directory() {
+  if (process.env.DRAWCALL_WEBGPU_NATIVE) return resolve(process.env.DRAWCALL_WEBGPU_NATIVE);
+  const target = `${process.platform}-${process.arch}`;
+  if (!['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'].includes(target)) {
+    throw new Error(`@drawcall/webgpu has no native package for ${target}`);
+  }
+  const local = fileURLToPath(new URL(`../dist/${target}/`, import.meta.url));
+  if (existsSync(join(local, 'dawn.node'))) return local;
   try {
-    return dirname(require.resolve(`${platformPackage}/package.json`));
+    return dirname(require.resolve(`@drawcall/webgpu-${target}/package.json`));
   } catch (cause) {
-    throw new Error(`${platformPackage} is not installed; ${process.platform}-${process.arch} may be unsupported`, { cause });
+    throw new Error(`Install @drawcall/webgpu-${target}; npm optional dependencies must be enabled`, { cause });
   }
 }
 
-const dir = nativeDir();
-export const native = require(join(dir, "webgl.node"));
-native.load(dir);
+export function loadNative() {
+  const dir = directory();
+  const mesa = process.platform === 'linux';
+  const icd = join(dir, mesa ? 'lvp_icd.json' : 'vk_swiftshader_icd.json');
+  if (!existsSync(icd)) throw new Error(`Missing software driver manifest: ${icd}`);
+  const settings = mesa ? {
+    VK_DRIVER_FILES: icd,
+    VK_ICD_FILENAMES: icd,
+    LP_NUM_THREADS: '2',
+    GALLIVM_PERF: 'nopt',
+    // Cold processes cannot benefit from cross-render shader reuse. Disabling the
+    // disk cache also avoids the cached vertex-object corruption seen in Mesa 26.
+    MESA_SHADER_CACHE_DISABLE: 'true',
+  } : {};
+  const previous = new Map(Object.keys(settings).map(key => [key, process.env[key]]));
+  const restore = () => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  Object.assign(process.env, settings);
+  try {
+    const native = require(join(dir, 'dawn.node'));
+    if (typeof native.createImageBitmapFromRGBA !== 'function') {
+      throw new Error('The native binding lacks ImageBitmap support; use the @drawcall/webgpu native build');
+    }
+    return { native, restore, flags: mesa ? ['backend=vulkan'] : ['backend=vulkan', 'adapter=SwiftShader'] };
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}

@@ -1,20 +1,26 @@
-# @drawcall/webgl
+# @drawcall/webgpu
 
-Headless WebGL2 for Node.js that renders three.js scenes on any machine, including small VMs without a GPU, with nothing to install beyond `npm install`. Rendering runs on the CPU through ANGLE and Mesa's lavapipe, the same WebGL implementation Chrome is built on, so images match Chrome's.
-
-```sh
-npm install @drawcall/webgl three
-```
+Render Three.js scenes in a fresh Node.js process on CPU-only Linux x64 VMs, using native WebGPU. Three.js and original assets stay unchanged.
 
 ```js
-import * as THREE from "three";
-import { createCanvas, installGlobals } from "@drawcall/webgl";
+import { createCanvas } from '@drawcall/webgpu';
+import { WebGPURenderer } from 'three/webgpu';
+import sharp from 'sharp';
 
-installGlobals(); // createImageBitmap & co. for three.js loaders
-const canvas = createCanvas(1280, 720);
-const renderer = new THREE.WebGLRenderer({ canvas });
-renderer.render(scene, camera);
-const pixels = canvas.readPixels(); // RGBA, top row first
+const canvas = await createCanvas(1280, 720);
+const renderer = new WebGPURenderer({ canvas, antialias: false, alpha: false });
+try {
+  await renderer.init();
+  // Build or load your scene with three/webgpu and standard Three.js loaders.
+  renderer.render(scene, camera);
+  await sharp(await canvas.readPixels(), {
+    raw: { width: 1280, height: 720, channels: 4 },
+  }).png().toFile('frame.png');
+} finally {
+  try { await renderer.dispose(); } finally { await canvas.dispose(); }
+}
 ```
 
-Supports macOS (arm64, x64), Windows (x64) and Linux (x64, arm64, glibc 2.28+). See [skills/webgl](skills/webgl/SKILL.md) for details.
+Requires Node.js 24 and Linux x64 with `libvulkan1`, `libdrm2`, `zlib1g`, `libzstd1`, and `libudev1` installed. Currently validated on Debian 13; this is a local, unpublished package. This is not a browser: DOM, video, and canvas-2D texture sources are unsupported. See the shipped [usage skill](skills/webgpu/SKILL.md) for loading scenes and resource ownership.
+
+From a source checkout, `npm run build:native` builds on Modal; `npm run test:cloud` installs and validates the packed packages on a small Modal VM. Both require an authenticated Modal CLI.

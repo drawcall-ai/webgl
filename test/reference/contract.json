@@ -1,0 +1,97 @@
+{
+  "browser": "156.0.8078.4",
+  "fixturePngBase64": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAYAAACddGYaAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAIklEQVR4nGP4z8Dwn+E/QwMDw///DPXiv+oZmZgZeZQsGAB/GQf4pF3D3gAAAABJRU5ErkJggg==",
+  "sourcePixels": [
+    255,
+    0,
+    0,
+    255,
+    0,
+    255,
+    0,
+    128,
+    0,
+    0,
+    255,
+    255,
+    127,
+    23,
+    250,
+    127,
+    1,
+    2,
+    3,
+    1,
+    12,
+    34,
+    56,
+    0
+  ],
+  "results": [
+    {
+      "name": "format-r8unorm"
+    },
+    {
+      "name": "format-r8snorm",
+      "creationError": "The texture usage (TextureUsage::(CopyDst|RenderAttachment)) includes TextureUsage::RenderAttachment, which is incompatible with the non-renderable format (TextureFormat::R8Snorm).\n - While validating [TextureDescriptor].\n - While calling [Device].CreateTexture([TextureDescriptor]).\n"
+    },
+    {
+      "name": "format-rg8unorm"
+    },
+    {
+      "name": "format-rg8snorm",
+      "creationError": "The texture usage (TextureUsage::(CopyDst|RenderAttachment)) includes TextureUsage::RenderAttachment, which is incompatible with the non-renderable format (TextureFormat::RG8Snorm).\n - While validating [TextureDescriptor].\n - While calling [Device].CreateTexture([TextureDescriptor]).\n"
+    },
+    {
+      "name": "format-rgba8snorm",
+      "creationError": "The texture usage (TextureUsage::(CopyDst|RenderAttachment)) includes TextureUsage::RenderAttachment, which is incompatible with the non-renderable format (TextureFormat::RGBA8Snorm).\n - While validating [TextureDescriptor].\n - While calling [Device].CreateTexture([TextureDescriptor]).\n"
+    },
+    {
+      "name": "format-rg11b10ufloat"
+    },
+    {
+      "name": "format-rgb10a2unorm"
+    },
+    {
+      "name": "format-rgba16float"
+    },
+    {
+      "name": "format-rgba32float"
+    },
+    {
+      "name": "origin-length-0"
+    },
+    {
+      "name": "origin-length-1"
+    },
+    {
+      "name": "origin-length-2"
+    },
+    {
+      "name": "origin-length-3",
+      "error": {
+        "name": "TypeError",
+        "message": "Failed to execute 'copyExternalImageToTexture' on 'GPUQueue': A sequence of number used as a GPUOrigin2D must have at most 2 elements."
+      }
+    },
+    {
+      "name": "zero-valid"
+    },
+    {
+      "name": "zero-no-render-usage",
+      "validation": "Destination texture needs to have CopyDst and RenderAttachment usage.\n    at APIInjectError (../../third_party/dawn/src/dawn/native/Device.cpp:1950)\n"
+    },
+    {
+      "name": "zero-bad-mip",
+      "validation": "MipLevel (9) is greater than the number of mip levels (1) in [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)].\n - While validating the TexelCopyTextureInfo for the destination\n - While validating CopyTextureForBrowser from [Texture (unlabeled 1x1 px, TextureFormat::BGRA8Unorm)] to [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)]\n"
+    },
+    {
+      "name": "zero-destroyed",
+      "validation": "Destroyed texture [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)] used in a submit.\n - While validating CopyTextureForBrowser from [Texture (unlabeled 1x1 px, TextureFormat::BGRA8Unorm)] to [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)]\n"
+    },
+    {
+      "name": "zero-outside",
+      "validation": "Texture copy range (origin: [Origin3D x:3, y:0, z:0], copySize: [Extent3D width:0, height:0, depthOrArrayLayers:1]) touches outside of [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)] mip level 0 size ([Extent3D width:2, height:2, depthOrArrayLayers:1]).\n - While validating that the copy fits in the destination\n - While validating CopyTextureForBrowser from [Texture (unlabeled 1x1 px, TextureFormat::BGRA8Unorm)] to [Texture (unlabeled 2x2 px, TextureFormat::RGBA8Unorm)]\n"
+    }
+  ]
+}
