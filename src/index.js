@@ -62,7 +62,7 @@ export async function createCanvas(width, height) {
     installed.set('cancelAnimationFrame', frame => { clearTimeout(frame); frames.delete(frame); });
     restoreImages = installImages(native);
     restoreWorkers = installWorkers();
-    gpu = native.create(loaded.flags);
+    gpu = native.create(['backend=vulkan']);
     installed.set('navigator', { gpu, userAgent: 'Node.js' });
     target.output.dispose = dispose;
     return target.output;

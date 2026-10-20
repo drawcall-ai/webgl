@@ -9,11 +9,6 @@ on:
       platforms:
         description: Comma-separated native targets, or all
         default: all
-      driver:
-        description: Software driver to validate
-        type: choice
-        options: [mesa, swiftshader]
-        default: mesa
 
 permissions:
   contents: read
@@ -110,12 +105,11 @@ jobs:
           key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
           restore-keys: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}
       - name: Build native package
-        run: python native/build.py build dist/${{ matrix.target }} --driver ${{ inputs.driver || 'mesa' }}
+        run: python native/build.py build dist/${{ matrix.target }}
       - name: Build Mesa
-        if: inputs.driver != 'swiftshader'
         run: python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
       - name: Bundle Linux runtime
-        if: runner.os == 'Linux' && inputs.driver != 'swiftshader'
+        if: runner.os == 'Linux'
         run: python deps/bundle.py dist/${{ matrix.target }}
       - name: Package
         run: node deps/package.js dist/${{ matrix.target }}

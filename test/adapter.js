@@ -15,7 +15,7 @@ try {
     features: [...adapter.features].sort(),
   };
   console.log(JSON.stringify(result));
-  assert.match(`${info.vendor} ${info.architecture} ${info.device} ${info.description}`, /llvmpipe|lavapipe|swiftshader/i, 'CI must use a software adapter');
+  assert.match(`${info.vendor} ${info.architecture} ${info.device} ${info.description}`, /llvmpipe|lavapipe/i, 'CI must use the bundled Mesa software adapter');
 } finally {
   await canvas.dispose();
 }

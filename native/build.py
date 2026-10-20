@@ -13,7 +13,6 @@ DAWN = "77f9a9aa5f7180958480de17680c61a84c006842"
 GPUWEB = "22507c95ccb9e705eddc7cab8f28aa46b134f5fe"
 HEADERS = "d5cfe19da8b974ca35764dd1c73b91d57cd3c4ce"
 ADDON = "1e26dcb52829a74260ec262edb41fc22998669b6"
-SWIFTSHADER = "1e80438d2b93ef36a7c05f8d2b81233bac0e3d16"
 
 
 def run(*args):
@@ -74,9 +73,8 @@ def build_loader(source, work, output, host, jobs):
     shutil.copy2(libraries[0], output / name)
 
 
-def build(work, output, jobs=4, driver="mesa"):
+def build(work, output, jobs=4):
     host = target()
-    swiftshader = driver == "swiftshader"
     if jobs < 1:
         raise ValueError("Build jobs must be positive")
     work.mkdir(parents=True, exist_ok=True)
@@ -85,19 +83,11 @@ def build(work, output, jobs=4, driver="mesa"):
     fetch_archive("google/dawn", DAWN, source, work)
     fetch_archive("nodejs/node-api-headers", HEADERS, source / "third_party/node-api-headers", work)
     fetch_archive("nodejs/node-addon-api", ADDON, source / "third_party/node-addon-api", work)
-    if swiftshader:
-        fetch_archive("google/swiftshader", SWIFTSHADER, source / "third_party/swiftshader", work)
-        cmake = source / "third_party/swiftshader/src/Vulkan/CMakeLists.txt"
-        exports = "\nset_target_properties(vk_swiftshader PROPERTIES CXX_VISIBILITY_PRESET default C_VISIBILITY_PRESET default)\n"
-        contents = cmake.read_text()
-        if exports not in contents:
-            # SwiftShader's export map needs visible entrypoints; keep Dawn's symbols hidden.
-            cmake.write_text(contents + exports)
     idl = source / "third_party/gpuweb/webgpu.idl"
     idl.parent.mkdir(exist_ok=True)
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
     patch(source)
-    options = [f"-DDAWN_ENABLE_SWIFTSHADER={'ON' if swiftshader else 'OFF'}"]
+    options = ["-DDAWN_ENABLE_SWIFTSHADER=OFF"]
     if host.startswith("linux-"):
         options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")
     if host.startswith("darwin-"):
@@ -114,29 +104,19 @@ def build(work, output, jobs=4, driver="mesa"):
         "-DDAWN_BUILD_SAMPLES=OFF", "-DDAWN_BUILD_TESTS=OFF", "-DTINT_BUILD_TESTS=OFF",
         "-DDAWN_ENABLE_OPENGLES=OFF", "-DDAWN_ENABLE_DESKTOP_GL=OFF", "-DDAWN_SUPPORTS_CXX_MODULES=OFF",
         *options)
-    targets = ["dawn_node", "vk_swiftshader"] if swiftshader else ["dawn_node"]
-    run("cmake", "--build", work / "build", "--target", *targets, "--parallel", jobs)
+    run("cmake", "--build", work / "build", "--target", "dawn_node", "--parallel", jobs)
     binaries = list((work / "build").rglob("dawn.node"))
     if len(binaries) != 1:
         raise RuntimeError(f"Expected one Dawn binary, got {binaries}")
     shutil.copy2(binaries[0], output / "dawn.node")
-    if swiftshader:
-        library = {"Windows": "vk_swiftshader.dll", "Darwin": "libvk_swiftshader.dylib",
-                   "Linux": "libvk_swiftshader.so"}[platform.system()]
-        shutil.copy2(work / "build" / library, output / library)
-        shutil.copy2(work / "build" / platform.system() / "vk_swiftshader_icd.json",
-                     output / "vk_swiftshader_icd.json")
-    else:
-        build_loader(source, work, output, host, jobs)
-    manifest = {"target": host, "driver": driver, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
+    build_loader(source, work, output, host, jobs)
+    manifest = {"target": host, "driver": "mesa", "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
                 "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
                 "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (Path(__file__).parent / name for name in
                                     ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp"))}}
-    if swiftshader:
-        manifest["swiftshader"] = SWIFTSHADER
     manifest["libraries"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()
-                             if p.suffix in {".node", ".dll", ".dylib", ".so"}}
+                             if p.suffix in {".node", ".dll", ".dylib", ".so"} or p.name.endswith(".so.1")}
     (output / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")
     # Preserve dependency notices from the exact source tree CMake fetched.
     licenses = [p for p in source.rglob("*") if p.is_file()
@@ -153,6 +133,5 @@ if __name__ == "__main__":
     parser.add_argument("work", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
-    parser.add_argument("--driver", choices=("mesa", "swiftshader"), default="mesa")
     args = parser.parse_args()
-    build(args.work.resolve(), args.output.resolve(), args.jobs, args.driver)
+    build(args.work.resolve(), args.output.resolve(), args.jobs)
