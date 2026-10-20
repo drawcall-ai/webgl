@@ -150,10 +150,9 @@ def build(work, output, jobs):
     if host == "Windows":
         # Mesa25's Win32 WSI includes DirectX headers even for the CPU driver,
         # but its dependency detection only enables them for hardware drivers.
-        headers = "/I" + (sources["directx"] / "include").as_posix()
+        os.environ["INCLUDE"] = str(sources["directx"] / "include") + os.pathsep + os.environ["INCLUDE"]
         platform_options = ["-Dplatforms=windows", "-Db_vscrt=mt", "-Dshader-cache=disabled",
-                            "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled",
-                            "-Dcpp_args=" + json.dumps([headers])]
+                            "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled"]
     meson(sources["mesa"], work / "mesa-build", work / "installed", jobs, [
         "--native-file", tools, "--force-fallback-for=zlib", "-Dzlib:default_library=static",
         "-Dgallium-drivers=llvmpipe", "-Dvulkan-drivers=swrast",
