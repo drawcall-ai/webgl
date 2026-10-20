@@ -11,7 +11,7 @@ import modal
 ROOT = Path(__file__).resolve().parents[1]
 volume = modal.Volume.from_name('drawcall-webgpu-build')
 image = (modal.Image.from_registry('node:24-trixie-slim', add_python='3.12')
-    .run_commands('apt-get update && apt-get install -y --no-install-recommends libvulkan1 libdrm2 zlib1g libzstd1 libudev1 time && rm -rf /var/lib/apt/lists/*')
+    .run_commands('apt-get update && apt-get install -y --no-install-recommends time && rm -rf /var/lib/apt/lists/*')
     .run_commands('mkdir -p /work /runtime && chmod 700 /runtime')
     .add_local_file(ROOT / 'package.json', '/work/package.json', copy=True)
     .add_local_file(ROOT / 'package-lock.json', '/work/package-lock.json', copy=True)

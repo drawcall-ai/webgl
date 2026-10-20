@@ -1,4 +1,4 @@
-"""Build portable lavapipe from pinned sources on a manylinux 2.28 host."""
+"""Build portable lavapipe from pinned sources for the host platform."""
 import argparse
 import hashlib
 import json
@@ -47,7 +47,16 @@ def fetch(name, work):
     destination.mkdir()
     members = [f"llvm-project-19.1.7.src/{component}" for component in
                ("llvm", "cmake", "third-party", "libc")] if name == "llvm" else []
-    run("tar", "-xf", archive, "--strip-components=1", "-C", destination, *members)
+    tar = "tar"
+    options = []
+    if platform.system() == "Windows":
+        git = Path(subprocess.check_output(["git", "--exec-path"], text=True).strip())
+        candidates = [parent / "usr/bin/tar.exe" for parent in git.parents]
+        tar = next((path for path in candidates if path.is_file()), None)
+        if tar is None:
+            raise RuntimeError("Git for Windows GNU tar is required to extract LLVM")
+        options = ["--force-local"]
+    run(tar, *options, "-xf", archive, "--strip-components=1", "-C", destination, *members)
     archive.unlink()
     stamp.write_text(checksum)
     return destination
@@ -67,7 +76,7 @@ def meson(source, build, prefix, jobs, options):
 
 
 def notices(sources, output):
-    with (output / "MESA_NOTICES").open("w") as stream:
+    with (output / "MESA_NOTICES").open("w", encoding="utf-8") as stream:
         for source in sources:
             for path in sorted(source.rglob("*")):
                 if not path.is_file() or not path.name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
@@ -75,60 +84,90 @@ def notices(sources, output):
                 if path.suffix in {".py", ".go", ".json", ".h", ".cc", ".cpp"}:
                     continue
                 stream.write(f"\n{'=' * 72}\n{source.name}/{path.relative_to(source)}\n\n")
-                stream.write(path.read_text(errors="replace"))
+                stream.write(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def build(work, output, jobs):
-    target = {"x86_64": "X86", "aarch64": "AArch64"}.get(platform.machine())
-    if platform.system() != "Linux" or target is None:
-        raise RuntimeError("The portable Mesa build supports Linux x64 and arm64")
+    host = platform.system()
+    target = {"x86_64": "X86", "amd64": "X86", "aarch64": "AArch64", "arm64": "AArch64"}.get(platform.machine().lower())
+    if host not in {"Linux", "Darwin", "Windows"} or target is None or (host == "Windows" and target != "X86"):
+        raise RuntimeError(f"Unsupported Mesa build host: {host} {platform.machine()}")
     if jobs < 1:
         raise ValueError("Build jobs must be positive")
     work.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
     prefix = work / "toolchain"
-    sources = {name: fetch(name, work) for name in SOURCES}
+    suffix = ".exe" if host == "Windows" else ""
+    options = []
+    if host == "Darwin":
+        os.environ["MACOSX_DEPLOYMENT_TARGET"] = "13.5"
+        options = ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5"]
+    if host == "Windows":
+        compiler = shutil.which("cl")
+        if compiler is None:
+            raise RuntimeError("Run the Mesa build in an MSVC developer environment")
+        os.environ["PATH"] = str(Path(compiler).parent) + os.pathsep + os.environ["PATH"]
+        os.environ.update(CC="cl", CXX="cl")
+        options = ["-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
+    sources = {name: fetch(name, work) for name in SOURCES if name != "libdrm" or host == "Linux"}
     cmake(sources["llvm"] / "llvm", work / "llvm-build", prefix, jobs, [
         f"-DLLVM_TARGETS_TO_BUILD={target}", "-DLLVM_BUILD_TOOLS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
         "-DLLVM_INCLUDE_EXAMPLES=OFF", "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_INCLUDE_DOCS=OFF",
         "-DLLVM_ENABLE_ZLIB=OFF", "-DLLVM_ENABLE_ZSTD=OFF", "-DLLVM_ENABLE_LIBXML2=OFF",
-        "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_RTTI=ON",
+        "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_RTTI=ON", *options,
     ], ["install-llvm-libraries", "install-llvm-headers", "install-cmake-exports", "llvm-config"])
     (prefix / "bin").mkdir(exist_ok=True)
-    shutil.copy2(work / "llvm-build/bin/llvm-config", prefix / "bin/llvm-config")
+    shutil.copy2(work / f"llvm-build/bin/llvm-config{suffix}", prefix / f"bin/llvm-config{suffix}")
     cmake(sources["glslang"], work / "glslang-build", prefix, jobs, [
-        "-DENABLE_OPT=OFF", "-DGLSLANG_TESTS=OFF", "-DENABLE_HLSL=OFF", "-DBUILD_SHARED_LIBS=OFF",
+        "-DENABLE_OPT=OFF", "-DGLSLANG_TESTS=OFF", "-DENABLE_HLSL=OFF", "-DBUILD_SHARED_LIBS=OFF", *options,
     ], ["install"])
-    meson(sources["libdrm"], work / "libdrm-build", prefix, jobs, [
-        "-Ddefault_library=static", "-Dtests=false", "-Dman-pages=disabled", "-Dudev=false",
-        *[f"-D{driver}=disabled" for driver in
-          ("intel", "radeon", "amdgpu", "nouveau", "vmwgfx", "freedreno", "vc4", "etnaviv")],
-    ])
+    if host == "Linux":
+        meson(sources["libdrm"], work / "libdrm-build", prefix, jobs, [
+            "-Ddefault_library=static", "-Dtests=false", "-Dman-pages=disabled", "-Dudev=false",
+            *[f"-D{driver}=disabled" for driver in
+              ("intel", "radeon", "amdgpu", "nouveau", "vmwgfx", "freedreno", "vc4", "etnaviv")],
+        ])
     os.environ["PKG_CONFIG_PATH"] = str(prefix / "lib/pkgconfig")
     tools = work / "tools.ini"
-    tools.write_text(f"[binaries]\nllvm-config = '{prefix}/bin/llvm-config'\n"
-                     f"glslangValidator = '{prefix}/bin/glslang'\n")
+    binaries = {"llvm-config": prefix / f"bin/llvm-config{suffix}", "glslangValidator": prefix / f"bin/glslang{suffix}"}
+    if host == "Windows":
+        chocolatey = Path(os.environ["ChocolateyInstall"]) / "lib/winflexbison3/tools"
+        binaries.update(win_flex=chocolatey / "win_flex.exe", win_bison=chocolatey / "win_bison.exe")
+    tools.write_text("[binaries]\n" + "".join(f"{name} = '{path.as_posix()}'\n" for name, path in binaries.items()))
     exports = f"-Wl,--version-script={sources['mesa']}/src/vulkan/vulkan.sym"
+    platform_options = ["-Dplatforms=", "-Dshader-cache=enabled", "-Dstrip=true",
+                        "-Dc_link_args=" + json.dumps([exports]),
+                        "-Dcpp_link_args=" + json.dumps([exports, "-static-libstdc++", "-static-libgcc"])]
+    if host == "Darwin":
+        exports = json.dumps(["-Wl,-dead_strip", "-Wl,-exported_symbol,_vk_icd*"])
+        platform_options = ["-Dplatforms=", "-Dshader-cache=enabled", "-Dstrip=true",
+                            "-Dc_link_args=" + exports, "-Dcpp_link_args=" + exports]
+    if host == "Windows":
+        platform_options = ["-Dplatforms=windows", "-Db_vscrt=mt", "-Dshader-cache=disabled",
+                            "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled"]
     meson(sources["mesa"], work / "mesa-build", work / "installed", jobs, [
         "--native-file", tools, "--force-fallback-for=zlib", "-Dzlib:default_library=static",
-        "-Dgallium-drivers=llvmpipe", "-Dvulkan-drivers=swrast", "-Dplatforms=",
+        "-Dgallium-drivers=llvmpipe", "-Dvulkan-drivers=swrast",
         "-Dglx=disabled", "-Degl=disabled", "-Dgles1=disabled", "-Dgles2=disabled", "-Dopengl=false",
         "-Dllvm=enabled", "-Dshared-llvm=disabled", "-Dgbm=disabled", "-Dvideo-codecs=", "-Dtools=",
         "-Dzstd=disabled", "-Dvulkan-layers=", "-Dxmlconfig=disabled", "-Dlibunwind=disabled",
-        "-Dvalgrind=disabled", "-Dlmsensors=disabled", "-Dshader-cache=enabled", "-Dstrip=true",
-        "-Dc_link_args=" + json.dumps([exports]),
-        "-Dcpp_link_args=" + json.dumps([exports, "-static-libstdc++", "-static-libgcc"]),
+        "-Dvalgrind=disabled", "-Dlmsensors=disabled", *platform_options,
     ])
-    shutil.copy2(work / "installed/lib/libvulkan_lvp.so", output / "libvulkan_lvp.so")
+    driver = {"Linux": "libvulkan_lvp.so", "Darwin": "libvulkan_lvp.dylib", "Windows": "vulkan_lvp.dll"}[host]
+    libraries = list((work / "installed").rglob(driver))
+    if len(libraries) != 1:
+        raise RuntimeError(f"Expected one installed lavapipe library, got {libraries}")
+    shutil.copy2(libraries[0], output / driver)
     icds = list((work / "installed/share/vulkan/icd.d").glob("lvp_icd*.json"))
     if len(icds) != 1:
         raise RuntimeError(f"Expected one installed lavapipe ICD, got {icds}")
     icd = json.loads(icds[0].read_text())
-    icd["ICD"]["library_path"] = "./libvulkan_lvp.so"
+    icd["ICD"]["library_path"] = "./" + driver
     (output / "lvp_icd.json").write_text(json.dumps(icd, indent=2) + "\n")
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["mesa"] = {name: {"url": url, "sha256": checksum} for name, (url, checksum) in SOURCES.items()}
+    manifest["mesa"] = {name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]} for name in sources}
+    manifest.setdefault("libraries", {})[driver] = hashlib.sha256((output / driver).read_bytes()).hexdigest()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     notices(sources.values(), output)
 

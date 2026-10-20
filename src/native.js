@@ -22,10 +22,9 @@ function directory() {
 
 export function loadNative() {
   const dir = directory();
-  const mesa = process.platform === 'linux';
-  const icd = join(dir, mesa ? 'lvp_icd.json' : 'vk_swiftshader_icd.json');
+  const icd = join(dir, 'lvp_icd.json');
   if (!existsSync(icd)) throw new Error(`Missing software driver manifest: ${icd}`);
-  const settings = mesa ? {
+  const settings = {
     VK_DRIVER_FILES: icd,
     VK_ICD_FILENAMES: icd,
     LP_NUM_THREADS: '2',
@@ -33,7 +32,7 @@ export function loadNative() {
     // Cold processes cannot benefit from cross-render shader reuse. Disabling the
     // disk cache also avoids the cached vertex-object corruption seen in Mesa 26.
     MESA_SHADER_CACHE_DISABLE: 'true',
-  } : {};
+  };
   const previous = new Map(Object.keys(settings).map(key => [key, process.env[key]]));
   const restore = () => {
     for (const [key, value] of previous) {
@@ -47,7 +46,7 @@ export function loadNative() {
     if (typeof native.createImageBitmapFromRGBA !== 'function') {
       throw new Error('The native binding lacks ImageBitmap support; use the @drawcall/webgpu native build');
     }
-    return { native, restore, flags: mesa ? ['backend=vulkan'] : ['backend=vulkan', 'adapter=SwiftShader'] };
+    return { native, restore };
   } catch (error) {
     restore();
     throw error;

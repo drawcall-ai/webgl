@@ -41,12 +41,13 @@ def linux(binary, directory):
 
 def darwin(binary, directory):
     output = capture("otool", "-L", binary)
+    identities = capture("otool", "-D", binary).splitlines()[1:] if binary.suffix == ".dylib" else []
     print(output)
     for line in output.splitlines()[1:]:
         dependency = line.strip().split(" (", 1)[0]
         if dependency.startswith(("/usr/lib/", "/System/Library/")):
             continue
-        if binary.suffix == ".dylib" and Path(dependency).name == binary.name:
+        if dependency in identities:
             continue
         if dependency.startswith("@loader_path/") and (binary.parent / dependency[13:]).resolve().is_relative_to(directory):
             if (binary.parent / dependency[13:]).is_file():

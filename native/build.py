@@ -48,9 +48,28 @@ def target():
     return name
 
 
-def build(work, output, jobs=4):
+def build_loader(source, work, output, host, jobs):
+    prefix = work / "vulkan-headers"
+    run("cmake", "-S", source / "third_party/vulkan-headers/src", "-B", work / "headers-build",
+        "-G", "Ninja", f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DVULKAN_HEADERS_ENABLE_TESTS=OFF",
+        "-DVULKAN_HEADERS_ENABLE_MODULE=OFF")
+    run("cmake", "--install", work / "headers-build")
+    options = ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5"] if host.startswith("darwin-") else [
+        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
+    run("cmake", "-S", source / "third_party/vulkan-loader/src", "-B", work / "loader-build",
+        "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_PREFIX_PATH={prefix}",
+        "-DBUILD_TESTS=OFF", *options)
+    run("cmake", "--build", work / "loader-build", "--target", "vulkan", "--parallel", jobs)
+    name = "vulkan-1.dll" if host == "win32-x64" else "libvulkan.dylib"
+    libraries = list((work / "loader-build").rglob(name))
+    if len(libraries) != 1:
+        raise RuntimeError(f"Expected one Vulkan loader, got {libraries}")
+    shutil.copy2(libraries[0], output / name)
+
+
+def build(work, output, jobs=4, driver="mesa"):
     host = target()
-    swiftshader = not host.startswith("linux-")
+    swiftshader = driver == "swiftshader"
     if jobs < 1:
         raise ValueError("Build jobs must be positive")
     work.mkdir(parents=True, exist_ok=True)
@@ -89,22 +108,27 @@ def build(work, output, jobs=4):
         raise RuntimeError(f"Expected one Dawn binary, got {binaries}")
     shutil.copy2(binaries[0], output / "dawn.node")
     if swiftshader:
-        driver = "vk_swiftshader.dll" if host == "win32-x64" else "libvk_swiftshader.dylib"
-        drivers = list((work / "build").rglob(driver))
+        library = {"Windows": "vk_swiftshader.dll", "Darwin": "libvk_swiftshader.dylib",
+                   "Linux": "libvk_swiftshader.so"}[platform.system()]
+        drivers = list((work / "build").rglob(library))
         if len(drivers) != 1:
             raise RuntimeError(f"Expected one SwiftShader library, got {drivers}")
-        shutil.copy2(drivers[0], output / driver)
+        shutil.copy2(drivers[0], output / library)
         icds = list((work / "build").rglob("vk_swiftshader_icd.json"))
         if len(icds) != 1:
             raise RuntimeError(f"Expected one SwiftShader ICD, got {icds}")
         shutil.copy2(icds[0], output / "vk_swiftshader_icd.json")
-    manifest = {"target": host, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
+    elif not host.startswith("linux-"):
+        build_loader(source, work, output, host, jobs)
+    manifest = {"target": host, "driver": driver, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
                 "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
                 "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (Path(__file__).parent / name for name in
                                     ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp"))}}
     if swiftshader:
         manifest["swiftshader"] = SWIFTSHADER
+    manifest["libraries"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()
+                             if p.suffix in {".node", ".dll", ".dylib", ".so"}}
     (output / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")
     # Preserve dependency notices from the exact source tree CMake fetched.
     licenses = [p for p in source.rglob("*") if p.is_file()
@@ -121,5 +145,6 @@ if __name__ == "__main__":
     parser.add_argument("work", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--driver", choices=("mesa", "swiftshader"), default="mesa")
     args = parser.parse_args()
-    build(args.work.resolve(), args.output.resolve(), args.jobs)
+    build(args.work.resolve(), args.output.resolve(), args.jobs, args.driver)

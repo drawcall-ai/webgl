@@ -66,7 +66,15 @@ jobs:
           python-version: '3.12'
       - name: Desktop build tools
         if: runner.os != 'Linux'
-        run: python -m pip install ninja==1.13.0
+        run: python -m pip install ninja==1.13.0 meson==1.7.0 mako pyyaml packaging
+      - name: macOS parser tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install bison
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+      - name: Windows parser tools
+        if: runner.os == 'Windows'
+        run: choco install -y winflexbison3 --no-progress
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -86,11 +94,11 @@ jobs:
           restore-keys: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}
       - name: Build native package
         run: python native/build.py build dist/${{ matrix.target }}
+      - name: Build Mesa
+        run: python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
       - name: Bundle Linux runtime
         if: runner.os == 'Linux'
-        run: |
-          python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
-          python deps/bundle.py dist/${{ matrix.target }}
+        run: python deps/bundle.py dist/${{ matrix.target }}
       - name: Package
         run: node deps/package.js dist/${{ matrix.target }}
       - name: Audit runtime dependencies
