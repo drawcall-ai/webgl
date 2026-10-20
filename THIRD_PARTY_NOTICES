@@ -1,9 +1,10 @@
-Third-party software in @drawcall/webgpu-linux-x64
+Third-party software in @drawcall/webgpu Linux native packages
 
 Dawn and its dependencies: see DAWN_NOTICES generated from the pinned source build.
 
 Mesa (lavapipe, llvmpipe)
-25.0.7-vgpu.1, https://github.com/vercel-labs/vgpu/releases/tag/lavapipe-v25.0.7-vgpu.1
+25.0.7, https://archive.mesa3d.org/mesa-25.0.7.tar.xz
+See MESA_NOTICES for the exact Mesa, LLVM, zlib and libdrm source notices.
 License: MIT (core Mesa; individual files carry their own notices)
 ====================================================================================================
 

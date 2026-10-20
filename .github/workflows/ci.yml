@@ -5,31 +5,49 @@ on:
   pull_request:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Comma-separated native targets, or all
+        default: all
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - id: targets
+        env:
+          PLATFORMS: ${{ inputs.platforms || 'all' }}
+        run: |
+          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
+          import json, os
+          targets = [
+              {"target": "linux-x64", "runner": "ubuntu-24.04", "container": "quay.io/pypa/manylinux_2_28_x86_64"},
+              {"target": "linux-arm64", "runner": "ubuntu-24.04-arm", "container": "quay.io/pypa/manylinux_2_28_aarch64"},
+              {"target": "darwin-arm64", "runner": "macos-15"},
+              {"target": "darwin-x64", "runner": "macos-15-intel"},
+              {"target": "win32-x64", "runner": "windows-2025"},
+          ]
+          wanted = os.environ["PLATFORMS"]
+          if wanted != "all":
+              names = set(wanted.split(","))
+              assert names <= {item["target"] for item in targets}, "Unknown platform"
+              targets = [item for item in targets if item["target"] in names]
+          print("matrix=" + json.dumps({"include": targets}))
+          PYTHON
+
   native:
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64
-            runner: ubuntu-24.04
-            container: node:24-bookworm
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-            container: node:24-bookworm
-          - target: darwin-arm64
-            runner: macos-15
-          - target: darwin-x64
-            runner: macos-15-intel
-          - target: win32-x64
-            runner: windows-2025
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     defaults:
       run:
         shell: bash
@@ -38,11 +56,10 @@ jobs:
       - name: Linux build tools
         if: runner.os == 'Linux'
         run: |
-          apt-get update
-          apt-get install -y cmake build-essential curl git pkg-config libvulkan1 libdrm2 zlib1g libzstd1 libudev1 python3 python3-pip python3-venv patchelf
-          python3 -m venv /opt/tools
-          /opt/tools/bin/pip install ninja==1.13.0
-          echo /opt/tools/bin >> "$GITHUB_PATH"
+          dnf install -y bison flex clang vulkan-loader patchelf pkgconf-pkg-config
+          echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
+          echo /opt/rh/gcc-toolset-14/root/usr/bin >> "$GITHUB_PATH"
+          /opt/python/cp312-cp312/bin/pip install ninja==1.13.0 cmake==3.31.6 meson==1.7.0 mako pyyaml packaging
       - uses: actions/setup-python@v5
         if: runner.os != 'Linux'
         with:
@@ -65,26 +82,26 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: build
-          key: dawn-${{ matrix.target }}-${{ github.run_id }}
-          restore-keys: dawn-${{ matrix.target }}-
+          key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
+          restore-keys: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}
       - name: Build native package
         run: python native/build.py build dist/${{ matrix.target }}
       - name: Bundle Linux runtime
         if: runner.os == 'Linux'
         run: |
-          python deps/mesa.py dist/${{ matrix.target }}
+          python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
           python deps/bundle.py dist/${{ matrix.target }}
       - name: Package
         run: node deps/package.js dist/${{ matrix.target }}
       - name: Audit runtime dependencies
         run: python deps/check.py dist/${{ matrix.target }}
       - name: Test installed packages
-        run: python deps/consumer.py dist/${{ matrix.target }}
+        run: npm run test:package -- dist/${{ matrix.target }}
       - uses: actions/cache/save@v4
         if: always()
         with:
           path: build
-          key: dawn-${{ matrix.target }}-${{ github.run_id }}
+          key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -97,15 +114,20 @@ jobs:
 
   clean-linux:
     needs: native
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (inputs.platforms == '' || inputs.platforms == 'all') }}
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        image: [node:24-bookworm-slim, node:24-trixie-slim]
+        image: [node:22-bookworm-slim, node:24-bookworm-slim, node:26-bookworm-slim, node:24-trixie-slim, registry.access.redhat.com/ubi8/nodejs-22-minimal]
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.image }}
+    container:
+      image: ${{ matrix.image }}
+      options: --user root
     steps:
+      - name: Checkout tools on UBI
+        if: contains(matrix.image, 'ubi8')
+        run: microdnf install -y gzip tar
       - uses: actions/checkout@v4
       - name: Target
         run: echo "TARGET=linux-$(node -p process.arch)" >> "$GITHUB_ENV"
@@ -113,14 +135,39 @@ jobs:
         with:
           name: package-${{ env.TARGET }}
           path: dist/${{ env.TARGET }}
-      - name: Install test harness
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends python3
       - name: Render without system graphics packages
-        run: python3 deps/consumer.py dist/${{ env.TARGET }} --repetitions 1
+        run: npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: clean-${{ env.TARGET }}-${{ strategy.job-index }}
+          path: test/out
+
+  desktop-compat:
+    needs: native
+    if: ${{ !cancelled() && (inputs.platforms == '' || inputs.platforms == 'all') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 26]
+        platform:
+          - {target: darwin-arm64, runner: macos-15}
+          - {target: darwin-x64, runner: macos-15-intel}
+          - {target: win32-x64, runner: windows-2025}
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-${{ matrix.platform.target }}
+          path: dist/${{ matrix.platform.target }}
+      - name: Test installed package on another Node version
+        run: npm run test:package -- dist/${{ matrix.platform.target }} --repetitions 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-${{ matrix.node }}-${{ matrix.platform.target }}
           path: test/out

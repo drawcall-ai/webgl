@@ -23,6 +23,10 @@ def capture(*args):
 
 
 def linux(binary, directory):
+    versions = re.findall(rb"GLIBC_(\d+\.\d+)", binary.read_bytes())
+    required = max((tuple(map(int, value.split(b"."))) for value in versions), default=(0, 0))
+    if required > (2, 28):
+        raise RuntimeError(f"{binary.name} requires glibc {required}, exceeding the 2.28 baseline")
     output = capture("ldd", binary)
     print(output)
     if "not found" in output:
@@ -30,6 +34,9 @@ def linux(binary, directory):
     for name, path in re.findall(r"\s*(\S+) => (/\S+)", output):
         if not GLIBC.match(name) and Path(path).resolve().parent != directory:
             raise RuntimeError(f"Unbundled dependency: {binary.name} -> {path}")
+    for path in re.findall(r"^\s*(/\S+) \(", output, re.MULTILINE):
+        if not GLIBC.match(Path(path).name) and Path(path).resolve().parent != directory:
+            raise RuntimeError(f"Absolute external dependency: {binary.name} -> {path}")
 
 
 def darwin(binary, directory):

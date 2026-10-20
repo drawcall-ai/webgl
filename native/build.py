@@ -66,6 +66,8 @@ def build(work, output, jobs=4):
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
     patch(source)
     options = [f"-DDAWN_ENABLE_SWIFTSHADER={'ON' if swiftshader else 'OFF'}"]
+    if host.startswith("linux-"):
+        options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")
     if host.startswith("darwin-"):
         options.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5")
     if host == "win32-x64":

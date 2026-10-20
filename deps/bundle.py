@@ -25,7 +25,12 @@ def dependencies(binary):
             yield Path(match[2])
 
 
-def copyright_file(source):
+def copyright_files(source):
+    if shutil.which("rpm"):
+        files = capture("rpm", "-q", "--licensefiles", "-f", Path(source).resolve()).splitlines()
+        if not files:
+            raise RuntimeError(f"No RPM license files for {source}")
+        return {Path(path) for path in files}
     paths = {source, str(Path(source).resolve())}
     if source.startswith("/lib/"):
         paths.add("/usr" + source)
@@ -34,7 +39,7 @@ def copyright_file(source):
               if ": " in line}
     if len(owners) != 1:
         raise RuntimeError(f"Cannot identify Debian license for {source}: {result.stdout}{result.stderr}")
-    return Path("/usr/share/doc") / owners.pop() / "copyright"
+    return {Path("/usr/share/doc") / owners.pop() / "copyright"}
 
 
 def bundle(output):
@@ -42,7 +47,7 @@ def bundle(output):
         raise RuntimeError("ELF dependency bundling requires Linux")
     loader = re.search(r"libvulkan\.so\.1 .+ => (/\S+)", capture("/sbin/ldconfig", "-p"))
     if not loader:
-        raise RuntimeError("Install libvulkan1 in the build image")
+        raise RuntimeError("Install the Vulkan loader in the build image")
     queue = [output / "dawn.node", output / "libvulkan_lvp.so", Path(loader[1])]
     copied = {}
     while queue:
@@ -57,12 +62,11 @@ def bundle(output):
         copied[name] = str(binary)
     for name in copied:
         subprocess.run(["patchelf", "--set-rpath", "$ORIGIN", str(output / name)], check=True)
-    # Debian packages include the full applicable copyright/license text.
     notices = set()
     for source in copied.values():
         if Path(source).parent == output:
             continue
-        notices.add(copyright_file(source))
+        notices.update(copyright_files(source))
     with (output / "DEPENDENCY_NOTICES").open("w") as stream:
         for path in sorted(notices):
             stream.write(f"\n{'=' * 72}\n{path}\n\n")

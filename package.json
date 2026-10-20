@@ -20,7 +20,8 @@
     "build:native": "modal run native/cloud.py",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:cloud": "modal run test/cloud.py",
-    "bench": "modal run test/cloud.py"
+    "bench": "modal run test/cloud.py",
+    "test:package": "node deps/consumer.js"
   },
   "dependencies": {
     "sharp": "0.35.5"
