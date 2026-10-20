@@ -143,7 +143,19 @@ def build(work, output, jobs):
         platform_options = ["-Dplatforms=", "-Dshader-cache=enabled", "-Dstrip=true",
                             "-Dc_link_args=" + exports, "-Dcpp_link_args=" + exports]
     if host == "Windows":
-        platform_options = ["-Dplatforms=windows", "-Db_vscrt=mt", "-Dshader-cache=disabled",
+        # Mesa's headless WSI uses POSIX clocks; its own C11 helper preserves
+        # monotonic timing on Windows without pulling in DirectX windowing.
+        headless = sources["mesa"] / "src/vulkan/wsi/wsi_common_headless.c"
+        text = headless.read_text()
+        for name in ("start_time", "current_time"):
+            original = f"clock_gettime(CLOCK_MONOTONIC, &{name});"
+            portable = f"timespec_get(&{name}, TIME_MONOTONIC);"
+            if text.count(original) == 1 and portable not in text:
+                text = text.replace(original, portable)
+            elif original in text or text.count(portable) != 1:
+                raise RuntimeError(f"Unexpected Mesa headless clock source: {name}")
+        headless.write_text(text)
+        platform_options = ["-Dplatforms=", "-Db_vscrt=mt", "-Dshader-cache=disabled",
                             "-Dmicrosoft-clc=disabled", "-Dgallium-d3d12-video=disabled"]
     meson(sources["mesa"], work / "mesa-build", work / "installed", jobs, [
         "--native-file", tools, "--force-fallback-for=zlib", "-Dzlib:default_library=static",
@@ -167,6 +179,8 @@ def build(work, output, jobs):
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["mesa"] = {name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]} for name in sources}
+    if host == "Windows":
+        manifest["mesa"]["mesa"]["headless_clock_sha256"] = hashlib.sha256(headless.read_bytes()).hexdigest()
     manifest.setdefault("libraries", {})[driver] = hashlib.sha256((output / driver).read_bytes()).hexdigest()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     notices(sources.values(), output)
