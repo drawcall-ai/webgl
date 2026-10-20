@@ -15,7 +15,7 @@ const manifest = {
   version: root.version,
   description: `Dawn and ${mesa ? 'Mesa lavapipe' : 'SwiftShader'} for CPU rendering on ${target}`,
   license: process.platform === 'linux'
-    ? 'BSD-3-Clause AND MIT AND Zlib AND LGPL-2.1-or-later AND Apache-2.0 WITH LLVM-exception AND GPL-3.0-or-later WITH GCC-exception-3.1'
+    ? 'BSD-3-Clause AND MIT AND Zlib AND Apache-2.0 WITH LLVM-exception AND GPL-3.0-or-later WITH GCC-exception-3.1'
     : mesa ? 'BSD-3-Clause AND MIT AND Zlib AND Apache-2.0 WITH LLVM-exception' : 'BSD-3-Clause AND MIT AND Apache-2.0',
   repository: root.repository,
   os: [process.platform],

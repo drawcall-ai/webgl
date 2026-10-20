@@ -81,7 +81,7 @@ Mesa Component Licenses
 In general, consult each source file SPDX identifier for license terms.
 
 ====================================================================================================
-libdrm (system dependency)
+libdrm (linked into lavapipe on Linux)
 2.4.124, https://gitlab.freedesktop.org/mesa/drm
 License: MIT
 ====================================================================================================
@@ -110,7 +110,7 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ====================================================================================================
-zlib (system dependency)
+zlib (linked into lavapipe)
 https://zlib.net
 License: Zlib
 ====================================================================================================
@@ -424,7 +424,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
 SOFTWARE.
 
 ====================================================================================================
-Vulkan-Loader (system dependency)
+Vulkan-Loader (bundled; exact source notices are in DAWN_NOTICES)
 https://github.com/KhronosGroup/Vulkan-Loader
 License: Apache-2.0
 ====================================================================================================
