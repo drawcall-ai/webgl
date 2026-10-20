@@ -1,4 +1,4 @@
-Third-party software in @drawcall/webgpu Linux native packages
+Third-party software in @drawcall/webgpu Mesa native packages
 
 Dawn and its dependencies: see DAWN_NOTICES generated from the pinned source build.
 

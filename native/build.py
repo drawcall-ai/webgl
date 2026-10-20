@@ -110,14 +110,9 @@ def build(work, output, jobs=4, driver="mesa"):
     if swiftshader:
         library = {"Windows": "vk_swiftshader.dll", "Darwin": "libvk_swiftshader.dylib",
                    "Linux": "libvk_swiftshader.so"}[platform.system()]
-        drivers = list((work / "build").rglob(library))
-        if len(drivers) != 1:
-            raise RuntimeError(f"Expected one SwiftShader library, got {drivers}")
-        shutil.copy2(drivers[0], output / library)
-        icds = list((work / "build").rglob("vk_swiftshader_icd.json"))
-        if len(icds) != 1:
-            raise RuntimeError(f"Expected one SwiftShader ICD, got {icds}")
-        shutil.copy2(icds[0], output / "vk_swiftshader_icd.json")
+        shutil.copy2(work / "build" / library, output / library)
+        shutil.copy2(work / "build" / platform.system() / "vk_swiftshader_icd.json",
+                     output / "vk_swiftshader_icd.json")
     elif not host.startswith("linux-"):
         build_loader(source, work, output, host, jobs)
     manifest = {"target": host, "driver": driver, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
