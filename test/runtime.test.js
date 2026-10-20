@@ -3,14 +3,16 @@ import { test } from 'node:test';
 import { createCanvas } from '@drawcall/webgpu';
 import { Color, Scene, PerspectiveCamera, WebGPURenderer } from 'three/webgpu';
 
-test('canvas restores globals, rejects overlap, and packs unaligned readback rows', async () => {
+test('canvas supports default Three alpha, restores globals, and packs unaligned readback rows', async () => {
   const names = ['navigator', 'ImageBitmap', 'createImageBitmap', 'Worker', 'self', 'ProgressEvent', 'requestAnimationFrame', 'cancelAnimationFrame', 'GPUTextureUsage'];
   const environment = { ...process.env };
   const before = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
   await assert.rejects(createCanvas(0, 2));
   for (let iteration = 0; iteration < 2; iteration++) {
     const canvas = await createCanvas(2, 2);
-    const renderer = new WebGPURenderer({ canvas, antialias: false, alpha: false });
+    const renderer = iteration === 0
+      ? new WebGPURenderer({ canvas, antialias: false, alpha: false })
+      : new WebGPURenderer({ canvas });
     try {
       await assert.rejects(createCanvas(2, 2));
       await renderer.init();
@@ -23,6 +25,21 @@ test('canvas restores globals, rejects overlap, and packs unaligned readback row
       scene.background.set(0x00ff00);
       renderer.render(scene, new PerspectiveCamera());
       assert.deepEqual([...await canvas.readPixels()], Array(6).fill([0, 255, 0, 255]).flat());
+      if (iteration === 1) {
+        scene.background = null;
+        renderer.setClearColor(0xff0000, 0.5);
+        renderer.render(scene, new PerspectiveCamera());
+        const pixels = await canvas.readPixels();
+        assert.equal(pixels.length, 24);
+        for (let index = 0; index < pixels.length; index += 4) {
+          // Three's float32 sRGB transform can quantize red to 127 while alpha rounds to 128.
+          assert.ok(Math.abs(pixels[index] - 255) <= 2, 'Half-alpha red must be unpremultiplied');
+          assert.deepEqual([...pixels.subarray(index + 1, index + 4)], [0, 0, 128]);
+        }
+        renderer.setClearAlpha(0);
+        renderer.render(scene, new PerspectiveCamera());
+        assert.deepEqual([...await canvas.readPixels()], Array(6).fill([0, 0, 0, 0]).flat());
+      }
     } finally {
       try { await renderer.dispose(); } finally { await canvas.dispose(); }
     }

@@ -35,11 +35,12 @@ export function canvas(width, height, check) {
     removeEventListener: events.removeEventListener.bind(events),
     dispatchEvent: events.dispatchEvent.bind(events),
     getContext(type) { ready(); return type === 'webgpu' ? context : null; },
-    /** Returns the current frame as packed, top-row-first RGBA8 bytes. */
+    /** Returns the current frame as packed, top-row-first straight-alpha RGBA8 bytes. */
     async readPixels() {
       ready();
       if (!texture) throw new Error('Render a frame before reading canvas pixels');
       const source = texture;
+      const premultiplied = configuration.alphaMode === 'premultiplied';
       const rowBytes = source.width * 4;
       const stride = Math.ceil(rowBytes / 256) * 256;
       const buffer = device.createBuffer({ size: stride * source.height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -54,7 +55,18 @@ export function canvas(width, height, check) {
         for (let row = 0; row < source.height; row++) {
           pixels.set(mapped.subarray(row * stride, row * stride + rowBytes), row * rowBytes);
         }
-        if (source.format === 'bgra8unorm') {
+        const bgra = source.format === 'bgra8unorm';
+        if (premultiplied) {
+          for (let index = 0; index < pixels.length; index += 4) {
+            const alpha = pixels[index + 3];
+            const scale = alpha === 0 ? 0 : 255 / alpha;
+            const red = pixels[index + (bgra ? 2 : 0)];
+            const blue = pixels[index + (bgra ? 0 : 2)];
+            pixels[index] = Math.min(255, Math.round(red * scale));
+            pixels[index + 1] = Math.min(255, Math.round(pixels[index + 1] * scale));
+            pixels[index + 2] = Math.min(255, Math.round(blue * scale));
+          }
+        } else if (bgra) {
           for (let index = 0; index < pixels.length; index += 4) {
             const red = pixels[index + 2];
             pixels[index + 2] = pixels[index];
@@ -75,7 +87,7 @@ export function canvas(width, height, check) {
       if (device && value.device !== device) throw new TypeError('A canvas cannot switch WebGPU devices');
       if (!value.device || typeof value.device.createTexture !== 'function') throw new TypeError('A WebGPU device is required');
       if ((value.colorSpace ?? 'srgb') !== 'srgb') throw new TypeError('Only sRGB canvas color space is supported');
-      if ((value.alphaMode ?? 'opaque') !== 'opaque') throw new TypeError('This offscreen canvas requires opaque alpha mode');
+      if (!['opaque', 'premultiplied'].includes(value.alphaMode ?? 'opaque')) throw new TypeError('Unsupported canvas alpha mode');
       if ((value.toneMapping?.mode ?? 'standard') !== 'standard') throw new TypeError('Extended canvas tone mapping is not supported');
       if (!['rgba8unorm', 'bgra8unorm'].includes(value.format)) throw new TypeError('Unsupported canvas format');
       if (!device) {

@@ -7,9 +7,9 @@ import { installWorkers } from './worker.js';
 let active = false;
 
 /**
- * Creates an opaque sRGB WebGPU canvas and installs the native loader platform.
- * One canvas may be active per process. Pass it to Three's
- * WebGPURenderer with alpha: false. Dispose loaders, scene resources, and the
+ * Creates an sRGB WebGPU canvas and installs the native loader platform.
+ * One canvas may be active per process. Pass it to Three's WebGPURenderer.
+ * readPixels() returns straight-alpha RGBA8. Dispose loaders, scene resources, and the
  * renderer before awaiting canvas.dispose(). No Three.js code is imported here.
  */
 export async function createCanvas(width, height) {

@@ -1,6 +1,6 @@
 ---
 name: webgpu
-description: Render Three.js scenes to images with @drawcall/webgpu in fresh Node.js processes on CPU-only Linux VMs. Use for server-side WebGPU rendering with standard loaders; not for browser WebGPU setup or WebGL migration inside a browser.
+description: Render Three.js scenes to images with @drawcall/webgpu in fresh Node.js processes. Use for CPU server-side WebGPU rendering with standard loaders; not for browser WebGPU setup or WebGL migration inside a browser.
 ---
 
 # Render a scene
@@ -14,7 +14,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const canvas = await createCanvas(1280, 720);
-const renderer = new WebGPURenderer({ canvas, antialias: false, alpha: false });
+const renderer = new WebGPURenderer({ canvas });
 const draco = new DRACOLoader().setWorkerLimit(1).setDecoderPath(decoderURL);
 try {
   await renderer.init();
