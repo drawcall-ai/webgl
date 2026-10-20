@@ -61,7 +61,7 @@ jobs:
       - name: Linux build tools
         if: runner.os == 'Linux'
         run: |
-          dnf install -y bison flex clang vulkan-loader patchelf pkgconf-pkg-config
+          dnf install -y bison flex clang patchelf pkgconf-pkg-config
           echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
           echo /opt/rh/gcc-toolset-14/root/usr/bin >> "$GITHUB_PATH"
           /opt/python/cp312-cp312/bin/pip install ninja==1.13.0 cmake==3.31.6 meson==1.7.0 mako pyyaml packaging

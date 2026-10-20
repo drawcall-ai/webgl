@@ -49,10 +49,10 @@ def copyright_files(source):
 def bundle(output):
     if platform.system() != "Linux":
         raise RuntimeError("ELF dependency bundling requires Linux")
-    loader = re.search(r"libvulkan\.so\.1 .+ => (/\S+)", capture("/sbin/ldconfig", "-p"))
-    if not loader:
-        raise RuntimeError("Install the Vulkan loader in the build image")
-    queue = [output / "dawn.node", output / "libvulkan_lvp.so", Path(loader[1])]
+    loader = output / "libvulkan.so.1"
+    if not loader.is_file():
+        raise RuntimeError(f"Build the pinned Vulkan loader first: {loader}")
+    queue = [output / "dawn.node", output / "libvulkan_lvp.so", loader]
     copied = {}
     while queue:
         binary = queue.pop()

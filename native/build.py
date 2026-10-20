@@ -54,13 +54,20 @@ def build_loader(source, work, output, host, jobs):
         "-G", "Ninja", f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DVULKAN_HEADERS_ENABLE_TESTS=OFF",
         "-DVULKAN_HEADERS_ENABLE_MODULE=OFF")
     run("cmake", "--install", work / "headers-build")
-    options = ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5"] if host.startswith("darwin-") else [
-        "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
+    options = []
+    if host.startswith("linux-"):
+        options = [f"-DBUILD_WSI_{surface}_SUPPORT=OFF" for surface in
+                   ("XCB", "XLIB", "XLIB_XRANDR", "WAYLAND", "DIRECTFB")]
+    elif host.startswith("darwin-"):
+        options = ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5"]
+    else:
+        options = ["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
     run("cmake", "-S", source / "third_party/vulkan-loader/src", "-B", work / "loader-build",
         "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_PREFIX_PATH={prefix}",
         "-DBUILD_TESTS=OFF", *options)
     run("cmake", "--build", work / "loader-build", "--target", "vulkan", "--parallel", jobs)
-    name = "vulkan-1.dll" if host == "win32-x64" else "libvulkan.dylib"
+    name = {"Linux": "libvulkan.so.1", "Darwin": "libvulkan.dylib",
+            "Windows": "vulkan-1.dll"}[platform.system()]
     libraries = list((work / "loader-build").rglob(name))
     if len(libraries) != 1:
         raise RuntimeError(f"Expected one Vulkan loader, got {libraries}")
@@ -119,7 +126,7 @@ def build(work, output, jobs=4, driver="mesa"):
         shutil.copy2(work / "build" / library, output / library)
         shutil.copy2(work / "build" / platform.system() / "vk_swiftshader_icd.json",
                      output / "vk_swiftshader_icd.json")
-    elif not host.startswith("linux-"):
+    else:
         build_loader(source, work, output, host, jobs)
     manifest = {"target": host, "driver": driver, "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
                 "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
