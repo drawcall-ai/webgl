@@ -18,6 +18,7 @@ const manifest = {
   repository: root.repository,
   os: [process.platform],
   cpu: [process.arch],
+  ...(mesa ? { libc: ['glibc'] } : {}),
   files: ['dawn.node', '*.so*', '*.dylib', '*.dll', '*_icd.json', 'build.json', '*NOTICES', 'LICENSE'],
 };
 writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);

@@ -13,6 +13,7 @@ DAWN = "77f9a9aa5f7180958480de17680c61a84c006842"
 GPUWEB = "22507c95ccb9e705eddc7cab8f28aa46b134f5fe"
 HEADERS = "d5cfe19da8b974ca35764dd1c73b91d57cd3c4ce"
 ADDON = "1e26dcb52829a74260ec262edb41fc22998669b6"
+SWIFTSHADER = "1e80438d2b93ef36a7c05f8d2b81233bac0e3d16"
 
 
 def run(*args):
@@ -58,6 +59,8 @@ def build(work, output, jobs=4):
     fetch_archive("google/dawn", DAWN, source, work)
     fetch_archive("nodejs/node-api-headers", HEADERS, source / "third_party/node-api-headers", work)
     fetch_archive("nodejs/node-addon-api", ADDON, source / "third_party/node-addon-api", work)
+    if swiftshader:
+        fetch_archive("google/swiftshader", SWIFTSHADER, source / "third_party/swiftshader", work)
     idl = source / "third_party/gpuweb/webgpu.idl"
     idl.parent.mkdir(exist_ok=True)
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
@@ -98,6 +101,8 @@ def build(work, output, jobs=4):
                 "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (Path(__file__).parent / name for name in
                                     ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp"))}}
+    if swiftshader:
+        manifest["swiftshader"] = SWIFTSHADER
     (output / "build.json").write_text(json.dumps(manifest, indent=2) + "\n")
     # Preserve dependency notices from the exact source tree CMake fetched.
     licenses = [p for p in source.rglob("*") if p.is_file()

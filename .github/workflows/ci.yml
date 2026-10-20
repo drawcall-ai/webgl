@@ -62,10 +62,10 @@ jobs:
       - name: Windows paths
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: build
-          key: dawn-${{ matrix.target }}-${{ hashFiles('native/**', 'deps/**') }}
+          key: dawn-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: dawn-${{ matrix.target }}-
       - name: Build native package
         run: python native/build.py build dist/${{ matrix.target }}
@@ -74,11 +74,17 @@ jobs:
         run: |
           python deps/mesa.py dist/${{ matrix.target }}
           python deps/bundle.py dist/${{ matrix.target }}
-          bash deps/check.sh dist/${{ matrix.target }}
       - name: Package
         run: node deps/package.js dist/${{ matrix.target }}
+      - name: Audit runtime dependencies
+        run: python deps/check.py dist/${{ matrix.target }}
       - name: Test installed packages
         run: python deps/consumer.py dist/${{ matrix.target }}
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: build
+          key: dawn-${{ matrix.target }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -91,6 +97,7 @@ jobs:
 
   clean-linux:
     needs: native
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
