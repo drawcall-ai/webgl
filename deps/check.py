@@ -9,7 +9,7 @@ from pathlib import Path
 from bundle import GLIBC
 
 WINDOWS = {
-    "advapi32.dll", "bcrypt.dll", "comdlg32.dll", "crypt32.dll", "dbghelp.dll",
+    "advapi32.dll", "bcrypt.dll", "cfgmgr32.dll", "comdlg32.dll", "crypt32.dll", "dbghelp.dll",
     "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll",
     "ntdll.dll", "ole32.dll", "oleaut32.dll", "powrprof.dll", "psapi.dll",
     "rpcrt4.dll", "secur32.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll",
