@@ -2,11 +2,11 @@ from pathlib import Path
 
 
 def patch(root):
-    """Apply the native image boundary without changing Dawn's core validation."""
+    """Enable the native image and driver boundaries without changing GPU validation."""
     here = Path(__file__).parent
     node = root / "src/dawn/node"
     names = ["interop/Browser.idl", "Module.cpp", "binding/GPUQueue.h",
-             "binding/GPUQueue.cpp", "binding/GPUDevice.cpp"]
+             "binding/GPUQueue.cpp", "binding/GPUDevice.cpp", "../native/vulkan/BackendVk.cpp"]
     sources = {}
     for name in names:
         path = node / name
@@ -40,6 +40,14 @@ def patch(root):
            ": device_(std::move(device)), queue_(std::move(queue))")
     change("binding/GPUQueue.cpp", "    UNIMPLEMENTED(env);", (here / "queue.cpp").read_text())
     change("binding/GPUDevice.cpp", "env, device_.GetQueue(), async_", "env, device_, device_.GetQueue(), async_")
+    # Our bundled Vulkan loader and Mesa driver are available on macOS too.
+    change("../native/vulkan/BackendVk.cpp", """#if DAWN_PLATFORM_IS(MACOS)
+        // On Mac, we don't expect non-Swiftshader Vulkan to be available.
+        if (icd == ICD::None) {
+            continue;
+        }
+#endif  // DAWN_PLATFORM_IS(MACOS)
+""", "")
     for name, contents in sources.items():
         path = node / name
         if not path.exists() or path.read_text() != contents:
