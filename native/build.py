@@ -80,6 +80,12 @@ def build(work, output, jobs=4, driver="mesa"):
     fetch_archive("nodejs/node-addon-api", ADDON, source / "third_party/node-addon-api", work)
     if swiftshader:
         fetch_archive("google/swiftshader", SWIFTSHADER, source / "third_party/swiftshader", work)
+        cmake = source / "third_party/swiftshader/src/Vulkan/CMakeLists.txt"
+        exports = "\nset_target_properties(vk_swiftshader PROPERTIES CXX_VISIBILITY_PRESET default C_VISIBILITY_PRESET default)\n"
+        contents = cmake.read_text()
+        if exports not in contents:
+            # SwiftShader's export map needs visible entrypoints; keep Dawn's symbols hidden.
+            cmake.write_text(contents + exports)
     idl = source / "third_party/gpuweb/webgpu.idl"
     idl.parent.mkdir(exist_ok=True)
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)

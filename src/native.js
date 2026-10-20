@@ -16,6 +16,10 @@ function directory() {
   try {
     return dirname(require.resolve(`@drawcall/webgpu-${target}/package.json`));
   } catch (cause) {
+    if (cause.code !== 'MODULE_NOT_FOUND') throw cause;
+    if (process.platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime) {
+      throw new Error('@drawcall/webgpu Linux packages require glibc; this Node.js runtime reports no glibc. Musl-based systems such as Alpine are unsupported.', { cause });
+    }
     throw new Error(`Install @drawcall/webgpu-${target}; npm optional dependencies must be enabled`, { cause });
   }
 }
@@ -52,6 +56,9 @@ export function loadNative() {
     return { native, restore, flags: mesa ? ['backend=vulkan'] : ['backend=vulkan', 'adapter=SwiftShader'] };
   } catch (error) {
     restore();
+    if (error.code === 'ERR_DLOPEN_FAILED') {
+      throw Object.assign(new Error(`Cannot load @drawcall/webgpu for ${process.platform}-${process.arch} on Node.js ${process.version}: ${error.message}`, { cause: error }), { code: error.code });
+    }
     throw error;
   }
 }
