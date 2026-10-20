@@ -10,7 +10,7 @@
     "skills"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "repository": {
     "type": "git",
