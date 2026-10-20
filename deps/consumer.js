@@ -20,7 +20,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const three = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).devDependencies.three;
 const env = { ...process.env };
 delete env.DRAWCALL_WEBGPU_NATIVE;
-const directory = mkdtempSync(join(tmpdir(), 'webgpu consumer ü '));
+const directory = mkdtempSync(join(tmpdir(), 'webgpu consumer ü 渲染 '));
 
 function run(args, cwd, capture = false) {
   return execFileSync(process.execPath, args, {

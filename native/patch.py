@@ -4,12 +4,13 @@ from pathlib import Path
 def patch(root):
     """Enable the native image and driver boundaries without changing GPU validation."""
     here = Path(__file__).parent
-    node = root / "src/dawn/node"
-    names = ["interop/Browser.idl", "Module.cpp", "binding/GPUQueue.h",
-             "binding/GPUQueue.cpp", "binding/GPUDevice.cpp", "../native/vulkan/BackendVk.cpp"]
+    base = root / "src/dawn"
+    names = ["node/interop/Browser.idl", "node/Module.cpp", "node/binding/GPUQueue.h",
+             "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "native/vulkan/BackendVk.cpp",
+             "common/DynamicLib.cpp", "common/SystemUtils.cpp"]
     sources = {}
     for name in names:
-        path = node / name
+        path = base / name
         original = path.with_suffix(path.suffix + ".platform-original")
         if not original.exists():
             original.write_bytes(path.read_bytes())
@@ -21,34 +22,62 @@ def patch(root):
             raise RuntimeError(f"Dawn patch anchor must occur exactly once in {name}: {old}")
         sources[name] = source.replace(old, new)
 
-    change("interop/Browser.idl", "[LegacyNoInterfaceObject] interface ImageBitmap {};",
+    change("node/interop/Browser.idl", "[LegacyNoInterfaceObject] interface ImageBitmap {};",
            "interface ImageBitmap { readonly attribute unsigned long width; "
            "readonly attribute unsigned long height; undefined close(); };")
-    sources["binding/ImageBitmap.h"] = (here / "bitmap.h").read_text()
-    change("Module.cpp", "#include <filesystem>",
+    sources["node/binding/ImageBitmap.h"] = (here / "bitmap.h").read_text()
+    change("node/Module.cpp", "#include <filesystem>",
            '#include <filesystem>\n#include <cmath>\n#include "src/dawn/node/binding/ImageBitmap.h"')
-    change("Module.cpp", "    return exports;", (here / "factory.cpp").read_text() + "\n    return exports;")
-    change("binding/GPUQueue.h", "GPUQueue(wgpu::Queue queue,", "GPUQueue(wgpu::Device device, wgpu::Queue queue,")
-    change("binding/GPUQueue.h", "    wgpu::Queue queue_;", "    wgpu::Device device_;\n    wgpu::Queue queue_;")
-    change("binding/GPUQueue.cpp", '#include "src/dawn/node/binding/GPUBuffer.h"',
+    change("node/Module.cpp", "    return exports;", (here / "factory.cpp").read_text() + "\n    return exports;")
+    change("node/binding/GPUQueue.h", "GPUQueue(wgpu::Queue queue,", "GPUQueue(wgpu::Device device, wgpu::Queue queue,")
+    change("node/binding/GPUQueue.h", "    wgpu::Queue queue_;", "    wgpu::Device device_;\n    wgpu::Queue queue_;")
+    change("node/binding/GPUQueue.cpp", '#include "src/dawn/node/binding/GPUBuffer.h"',
            '#include "src/dawn/node/binding/GPUBuffer.h"\n'
            '#include "src/dawn/node/binding/ImageBitmap.h"\n'
            '#include "src/dawn/node/binding/Errors.h"')
-    change("binding/GPUQueue.cpp", "GPUQueue::GPUQueue(wgpu::Queue queue,",
+    change("node/binding/GPUQueue.cpp", "GPUQueue::GPUQueue(wgpu::Queue queue,",
            "GPUQueue::GPUQueue(wgpu::Device device, wgpu::Queue queue,")
-    change("binding/GPUQueue.cpp", ": queue_(std::move(queue))",
+    change("node/binding/GPUQueue.cpp", ": queue_(std::move(queue))",
            ": device_(std::move(device)), queue_(std::move(queue))")
-    change("binding/GPUQueue.cpp", "    UNIMPLEMENTED(env);", (here / "queue.cpp").read_text())
-    change("binding/GPUDevice.cpp", "env, device_.GetQueue(), async_", "env, device_, device_.GetQueue(), async_")
+    change("node/binding/GPUQueue.cpp", "    UNIMPLEMENTED(env);", (here / "queue.cpp").read_text())
+    change("node/binding/GPUDevice.cpp", "env, device_.GetQueue(), async_", "env, device_, device_.GetQueue(), async_")
     # Our bundled Vulkan loader and Mesa driver are available on macOS too.
-    change("../native/vulkan/BackendVk.cpp", """#if DAWN_PLATFORM_IS(MACOS)
+    change("native/vulkan/BackendVk.cpp", """#if DAWN_PLATFORM_IS(MACOS)
         // On Mac, we don't expect non-Swiftshader Vulkan to be available.
         if (icd == ICD::None) {
             continue;
         }
 #endif  // DAWN_PLATFORM_IS(MACOS)
 """, "")
+    change("common/DynamicLib.cpp", """#if DAWN_PLATFORM_IS(WINUWP)
+#include "src/dawn/common/WindowsUtils.h"
+#endif""", '#include "src/dawn/common/WindowsUtils.h"')
+    change("common/DynamicLib.cpp", "LoadLibraryExA(filename.c_str(), nullptr, loadLibraryFlags)",
+           "LoadLibraryExW(UTF8ToWStr(filename.c_str()).c_str(), nullptr, loadLibraryFlags)")
+    change("common/SystemUtils.cpp", '#include "src/utils/windows_with_undefs.h"',
+           '#include "src/utils/windows_with_undefs.h"\n#include "src/dawn/common/WindowsUtils.h"\n#include <algorithm>')
+    change("common/SystemUtils.cpp", """    std::array<char, MAX_PATH> executableFileBuf;
+    DWORD executablePathLen = GetModuleFileNameA(module, executableFileBuf.data(),
+                                                 static_cast<DWORD>(executableFileBuf.size()));
+    if (executablePathLen == 0) {
+        return {};
+    }
+    return executableFileBuf.data();""", """    constexpr size_t maxPathLength = 32768;
+    std::vector<wchar_t> path(MAX_PATH);
+    for (;;) {
+        DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0) {
+            return {};
+        }
+        if (length < path.size()) {
+            return WCharToUTF8(path.data());
+        }
+        if (path.size() == maxPathLength) {
+            return {};
+        }
+        path.resize(std::min(path.size() * 2, maxPathLength));
+    }""")
     for name, contents in sources.items():
-        path = node / name
+        path = base / name
         if not path.exists() or path.read_text() != contents:
             path.write_text(contents)
