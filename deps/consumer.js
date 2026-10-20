@@ -8,15 +8,15 @@ import { parseArgs } from 'node:util';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  options: { repetitions: { type: 'string', default: '3' } },
+  options: { repetitions: { type: 'string', default: '3' }, version: { type: 'string' } },
 });
-assert.equal(positionals.length, 1, 'Usage: npm run test:package -- dist/TARGET [--repetitions 3]');
+assert.equal(positionals.length, values.version === undefined ? 1 : 0, 'Supply either dist/TARGET or --version VERSION, not both');
+if (values.version !== undefined) assert.match(values.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Version must be an exact stable release');
 const repetitions = Number(values.repetitions);
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'Repetitions must be a positive integer');
 const npm = process.env.npm_execpath;
 assert.ok(npm, 'Invoke through npm run test:package so the npm CLI path is available');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const native = realpathSync(positionals[0]);
 const three = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).devDependencies.three;
 const env = { ...process.env };
 delete env.DRAWCALL_WEBGPU_NATIVE;
@@ -30,10 +30,10 @@ function run(args, cwd, capture = false) {
 }
 
 try {
-  const packages = [root, native].map(source => {
+  const packages = values.version === undefined ? [root, realpathSync(positionals[0])].map(source => {
     const result = JSON.parse(run([npm, 'pack', source, '--json', '--pack-destination', directory], root, true));
     return join(directory, result[0].filename);
-  });
+  }) : [`@drawcall/webgpu@${values.version}`];
   const consumer = join(directory, 'consumer');
   mkdirSync(consumer);
   writeFileSync(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));

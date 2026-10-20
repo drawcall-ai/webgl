@@ -43,3 +43,44 @@ jobs:
             npm publish "./dist/$target" --access public --provenance
           done
       - run: npm publish --access public --provenance
+
+  registry-install:
+    needs: publish
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+            container: node:24-bookworm-slim
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            container: node:24-bookworm-slim
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+          - target: win32-x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+      - name: Install release with automatic native package selection
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: npm run test:package -- --version "${RELEASE_TAG#v}" --repetitions 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-${{ matrix.target }}
+          path: test/out
