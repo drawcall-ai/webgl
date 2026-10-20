@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-GLIBC = re.compile(r"^(lib(c|m|dl|pthread|rt|resolv|util|anl)\.so\.|ld-linux)")
+GLIBC = re.compile(r"^(lib(c|m|mvec|dl|pthread|rt|resolv|util|anl|BrokenLocale)\.so\.|ld-linux)")
 
 
 def capture(*args):

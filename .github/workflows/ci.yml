@@ -165,9 +165,9 @@ jobs:
       matrix:
         node: [22, 26]
         platform:
-          - {target: darwin-arm64, runner: macos-15}
+          - {target: darwin-arm64, runner: macos-14}
           - {target: darwin-x64, runner: macos-15-intel}
-          - {target: win32-x64, runner: windows-2025}
+          - {target: win32-x64, runner: windows-2022}
     runs-on: ${{ matrix.platform.runner }}
     steps:
       - uses: actions/checkout@v4

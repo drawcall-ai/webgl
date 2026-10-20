@@ -90,7 +90,7 @@ def build(work, output, jobs=4, driver="mesa"):
     if host.startswith("darwin-"):
         options.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5")
     if host == "win32-x64":
-        options.append("-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
+        options.extend(["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DABSL_MSVC_STATIC_RUNTIME=ON"])
     run("cmake", "-S", source, "-B", work / "build", "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_VISIBILITY_PRESET=hidden",
         "-DCMAKE_VISIBILITY_INLINES_HIDDEN=1", "-DDAWN_BUILD_NODE_BINDINGS=ON",

@@ -41,7 +41,7 @@ def linux(binary, directory):
 
 def darwin(binary, directory):
     output = capture("otool", "-L", binary)
-    identities = capture("otool", "-D", binary).splitlines()[1:] if binary.suffix == ".dylib" else []
+    identities = capture("otool", "-D", binary).splitlines()[1:]
     print(output)
     for line in output.splitlines()[1:]:
         dependency = line.strip().split(" (", 1)[0]
