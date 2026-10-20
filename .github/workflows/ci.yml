@@ -23,6 +23,10 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      linux-runners: ${{ steps.targets.outputs.linux-runners }}
+      desktop-platforms: ${{ steps.targets.outputs.desktop-platforms }}
+      has-linux: ${{ steps.targets.outputs.has-linux }}
+      has-desktop: ${{ steps.targets.outputs.has-desktop }}
     steps:
       - id: targets
         env:
@@ -43,6 +47,14 @@ jobs:
               assert names <= {item["target"] for item in targets}, "Unknown platform"
               targets = [item for item in targets if item["target"] in names]
           print("matrix=" + json.dumps({"include": targets}))
+          linux = [item["runner"] for item in targets if item["target"].startswith("linux-")]
+          compatibility = {"darwin-arm64": "macos-14", "win32-x64": "windows-2022"}
+          desktop = [{"target": item["target"], "runner": compatibility.get(item["target"], item["runner"])}
+                     for item in targets if not item["target"].startswith("linux-")]
+          print("linux-runners=" + json.dumps(linux))
+          print("desktop-platforms=" + json.dumps(desktop))
+          print("has-linux=" + json.dumps(bool(linux)))
+          print("has-desktop=" + json.dumps(bool(desktop)))
           PYTHON
 
   native:
@@ -127,12 +139,12 @@ jobs:
           path: dist/${{ matrix.target }}
 
   clean-linux:
-    needs: native
-    if: ${{ !cancelled() && (inputs.platforms == '' || inputs.platforms == 'all') }}
+    needs: [plan, native]
+    if: ${{ !cancelled() && needs.plan.outputs.has-linux == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: ${{ fromJSON(needs.plan.outputs.linux-runners) }}
         image: [node:22-bookworm-slim, node:24-bookworm-slim, node:26-bookworm-slim, node:24-trixie-slim, registry.access.redhat.com/ubi8/nodejs-22-minimal]
     runs-on: ${{ matrix.runner }}
     container:
@@ -158,16 +170,13 @@ jobs:
           path: test/out
 
   desktop-compat:
-    needs: native
-    if: ${{ !cancelled() && (inputs.platforms == '' || inputs.platforms == 'all') }}
+    needs: [plan, native]
+    if: ${{ !cancelled() && needs.plan.outputs.has-desktop == 'true' }}
     strategy:
       fail-fast: false
       matrix:
         node: [22, 26]
-        platform:
-          - {target: darwin-arm64, runner: macos-14}
-          - {target: darwin-x64, runner: macos-15-intel}
-          - {target: win32-x64, runner: windows-2022}
+        platform: ${{ fromJSON(needs.plan.outputs.desktop-platforms) }}
     runs-on: ${{ matrix.platform.runner }}
     steps:
       - uses: actions/checkout@v4
