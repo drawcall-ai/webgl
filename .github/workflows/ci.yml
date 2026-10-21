@@ -9,25 +9,12 @@ on:
       platforms:
         description: Comma-separated native targets, or all
         default: all
-      stress-run:
-        description: Existing run ID containing ARM packages for fresh-process stress tests
-        type: string
-      diagnostic-run:
-        description: Existing run ID containing a musl package to debug
-        type: string
-      diagnostic-target:
-        description: Architecture of the preserved musl package
-        type: choice
-        options: [arm64, x64]
-        default: arm64
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   plan:
-    if: ${{ !inputs.diagnostic-run && !inputs.stress-run }}
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -174,7 +161,6 @@ jobs:
           name: results-${{ matrix.target }}
           path: test/out
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: package-${{ matrix.target }}
           path: dist/${{ matrix.target }}
@@ -259,68 +245,4 @@ jobs:
         if: always()
         with:
           name: clean-${{ env.TARGET }}-${{ strategy.job-index }}
-          path: test/out
-
-  diagnostic:
-    if: ${{ inputs.diagnostic-run != '' }}
-    runs-on: ${{ inputs.diagnostic-target == 'x64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: package-linuxmusl-${{ inputs.diagnostic-target }}
-          path: dist/linuxmusl-${{ inputs.diagnostic-target }}
-          run-id: ${{ inputs.diagnostic-run }}
-          github-token: ${{ github.token }}
-      - name: Capture Tokyo native crash
-        run: |
-          mkdir -p test/out
-          docker run --rm -i --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v "$PWD:/work" -w /work node:22-alpine3.22 sh <<'SH' 2>&1 | tee test/out/native-debug.log
-          set -eu
-          apk add --no-cache gdb
-          npm ci --ignore-scripts
-          gdb --batch -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint pass' -ex 'handle SIGILL nostop noprint pass' \
-            -ex run -ex 'p $_siginfo' -ex 'info registers' -ex 'x/40i $pc-80' -ex 'bt 50' \
-            -ex 'thread apply all bt 12' -ex 'info proc mappings' \
-            --args node test/render.js tokyo test/out/tokyo-debug.png
-          SH
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: diagnostic-linuxmusl-${{ inputs.diagnostic-target }}
-          path: test/out
-
-  stress:
-    if: ${{ inputs.stress-run != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJSON(inputs.platforms == 'all' && '["linuxmusl-arm64","linux-arm64","win32-arm64"]' || format('["{0}"]', inputs.platforms)) }}
-    runs-on: ${{ matrix.target == 'win32-arm64' && 'windows-11-arm' || 'ubuntu-24.04-arm' }}
-    env:
-      STRESS_IMAGE: ${{ matrix.target == 'linuxmusl-arm64' && 'node:22-alpine3.22' || 'node:22-bookworm-slim' }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        if: runner.os == 'Windows'
-        with:
-          node-version: 22
-      - uses: actions/download-artifact@v4
-        with:
-          name: package-${{ matrix.target }}
-          path: dist/${{ matrix.target }}
-          run-id: ${{ inputs.stress-run }}
-          github-token: ${{ github.token }}
-      - name: Stress fresh renders on small Linux VM
-        if: runner.os == 'Linux'
-        run: docker run --rm --cpus 2 --memory 1g --memory-swap 1g -v "$PWD:/work" -w /work "$STRESS_IMAGE" npm run test:package -- dist/${{ matrix.target }} --repetitions 20
-      - name: Stress fresh renders on Windows ARM
-        if: runner.os == 'Windows'
-        run: npm run test:package -- dist/${{ matrix.target }} --repetitions 20
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: stress-${{ matrix.target }}
           path: test/out

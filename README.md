@@ -21,8 +21,8 @@ try {
 }
 ```
 
-Requires Node.js 22+. Native packages bundle the software renderer and Vulkan loader for Linux x64/ARM64 (glibc 2.28+; x64 requires SSE4.2), macOS 13.5+ (Intel/Apple Silicon), and Windows x64. No GPU, browser, compiler, SDK, or system graphics packages are needed. Keep npm optional dependencies enabled. Alpine/musl and other platform/CPU combinations are unsupported.
+Requires Node.js 22+. Native packages bundle the software renderer and Vulkan loader for Linux x64/ARM64 (glibc 2.28+ or musl 1.2.5+/Alpine 3.22+), macOS 13.5+ (Intel/Apple Silicon), and Windows x64/ARM64. x64 requires SSE4.2. No GPU, browser, compiler, SDK, or system graphics packages are needed. Keep npm optional dependencies enabled. Other platform/CPU combinations are unsupported.
 
-This package is currently unpublished. The example uses `three` and `sharp` as application dependencies. DOM, video, and canvas-2D texture sources are unsupported. See the shipped [usage skill](skills/webgpu/SKILL.md) for loading scenes and resource ownership.
+The example uses `three` and `sharp` as application dependencies. DOM, video, and canvas-2D texture sources are unsupported. See the shipped [usage skill](skills/webgpu/SKILL.md) for loading scenes and resource ownership.
 
 CI builds and tests each platform's packages. From a source checkout, `npm run build:native` builds Linux x64 on Modal; `npm run test:cloud` validates packed packages on a small Modal VM. Both require an authenticated Modal CLI.
