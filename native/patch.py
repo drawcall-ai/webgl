@@ -9,9 +9,10 @@ def patch(root):
              "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "native/vulkan/BackendVk.cpp",
              "common/DynamicLib.cpp", "common/SystemUtils.cpp", "native/vulkan/BackendVk.h",
              "native/vulkan/VulkanInfo.h", "native/vulkan/VulkanInfo.cpp"]
+    paths = {name: base / name for name in names}
+    paths["tools/fetch_dawn_dependencies.py"] = root / "tools/fetch_dawn_dependencies.py"
     sources = {}
-    for name in names:
-        path = base / name
+    for name, path in paths.items():
         original = path.with_suffix(path.suffix + ".platform-original")
         if not original.exists():
             original.write_bytes(path.read_bytes())
@@ -23,6 +24,20 @@ def patch(root):
             raise RuntimeError(f"Dawn patch anchor must occur exactly once in {name}: {old}")
         sources[name] = source.replace(old, new)
 
+    # The pinned fetcher hides Git failures and retries a remote that shallow clones never create.
+    change("tools/fetch_dawn_dependencies.py",
+           """        git = lambda *x: subprocess.run([args.git, '-C', submodule_path, *x],
+                                        capture_output=True)""",
+           """        def git(*arguments):
+            command = [args.git, '-C', submodule_path, *arguments]
+            result = subprocess.run(command, capture_output=True)
+            if result.returncode and arguments[0] not in ('rev-parse', 'cat-file'):
+                raise RuntimeError(f"Git command failed: {command}\\n"
+                                   + result.stderr.decode(errors='replace'))
+            return result""")
+    change("tools/fetch_dawn_dependencies.py", "git('fetch', 'origin', git_tag, '--depth', '1')",
+           "git('fetch', git_url, git_tag, '--depth', '1')")
+    change("tools/fetch_dawn_dependencies.py", "git('fetch', 'origin')", "git('fetch', git_url)")
     change("node/interop/Browser.idl", "[LegacyNoInterfaceObject] interface ImageBitmap {};",
            "interface ImageBitmap { readonly attribute unsigned long width; "
            "readonly attribute unsigned long height; undefined close(); };")
@@ -126,6 +141,6 @@ def patch(root):
         path.resize(std::min(path.size() * 2, maxPathLength));
     }""")
     for name, contents in sources.items():
-        path = base / name
+        path = paths.get(name, base / name)
         if not path.exists() or path.read_text() != contents:
             path.write_text(contents)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cp } from 'node:fs/promises';
@@ -80,6 +80,29 @@ async function prepare() {
   console.log(`Prepared ${packages.length} packages in ${output}; nothing published.`);
 }
 
+function published(item, version) {
+  const spec = `${item.name}@${version}`;
+  const result = spawnSync(process.execPath, [npm, 'view', spec, 'dist.integrity', '--json'], {
+    cwd: root, encoding: 'utf8',
+  });
+  if (result.error) throw result.error;
+  let response;
+  try {
+    response = JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`Cannot check ${spec}: ${result.stderr || result.stdout}`, { cause: error });
+  }
+  if (result.status !== 0) {
+    const error = response.error;
+    assert.equal(error.code, 'E404', `Cannot check ${spec}: ${result.stderr || result.stdout}`);
+    return false;
+  }
+  const integrity = `sha512-${createHash('sha512').update(readFileSync(join(output, item.file))).digest('base64')}`;
+  assert.equal(response, integrity, `${spec} already exists with different contents`);
+  console.log(`Already published: ${spec}`);
+  return true;
+}
+
 function publish() {
   const release = JSON.parse(readFileSync(join(output, 'release.json')));
   assert.deepEqual(release.packages.map(item => item.name), names, 'Prepared release does not match this package set');
@@ -87,7 +110,9 @@ function publish() {
     assert.equal(basename(item.file), item.file, 'Tarballs must be inside dist/release');
     assert.equal(hash(join(output, item.file)), item.sha256, `${item.file} checksum mismatch`);
   }
-  for (const item of release.packages) {
+  // Check every published version before changing the registry; partial releases resume safely.
+  const pending = release.packages.filter(item => !published(item, release.version));
+  for (const item of pending) {
     run(['publish', join(output, item.file), '--access', 'public', '--tag', 'latest',
       ...(process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : []),
       ...(values['dry-run'] ? ['--dry-run'] : [])]);

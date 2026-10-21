@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -60,6 +60,67 @@ test('release preparation rejects stale binaries, packs all targets, and detects
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /checksum mismatch/);
     assert.equal(rejected.stdout, '');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publishing resumes matching packages and rejects conflicts or registry errors before publishing', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'webgpu-publish-test-')));
+  const write = (path, value) => writeFileSync(join(root, path), value);
+  const json = (path, value) => write(path, JSON.stringify(value));
+  try {
+    mkdirSync(join(root, 'deps'));
+    mkdirSync(join(root, 'dist/release'), { recursive: true });
+    copyFileSync(new URL('../../deps/release.js', import.meta.url), join(root, 'deps/release.js'));
+    const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url)));
+    json('package.json', manifest);
+    const names = [...Object.keys(manifest.optionalDependencies), manifest.name];
+    const packages = names.map((name, index) => {
+      const file = `${index}.tgz`;
+      write(`dist/release/${file}`, name);
+      return { name, file, sha256: digest(name) };
+    });
+    json('dist/release/release.json', { version: '0.1.0', packages });
+    write('npm.js', `
+      import { appendFileSync, readFileSync } from 'node:fs';
+      const args = process.argv.slice(2);
+      appendFileSync('calls.jsonl', JSON.stringify(args) + '\\n');
+      if (args[0] === 'view') {
+        const registry = JSON.parse(readFileSync('registry.json'));
+        const value = registry[args[1]] ?? { error: { code: 'E404' } };
+        console.log(JSON.stringify(value));
+        process.exit(value.error ? 1 : 0);
+      }
+      if (args[0] !== 'publish') throw new Error('Unexpected npm operation');
+    `);
+    const registry = Object.fromEntries(names.slice(0, 5).map(name => [
+      `${name}@0.1.0`, `sha512-${createHash('sha512').update(name).digest('base64')}`,
+    ]));
+    const run = () => {
+      write('calls.jsonl', '');
+      return spawnSync(process.execPath, ['deps/release.js', 'publish', '--dry-run'], {
+        cwd: root, encoding: 'utf8', env: { ...process.env, npm_execpath: join(root, 'npm.js') },
+      });
+    };
+    const calls = () => readFileSync(join(root, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    json('registry.json', registry);
+    const resumed = run();
+    assert.equal(resumed.status, 0, resumed.stderr);
+    assert.deepEqual(calls().slice(0, names.length).map(args => args[0]), names.map(() => 'view'));
+    assert.deepEqual(calls().slice(names.length).map(args => args[1]), packages.slice(5).map(item => join(root, 'dist/release', item.file)));
+    assert.ok(calls().slice(names.length).every(args => args.includes('--dry-run')));
+    for (const [value, message] of [
+      ['sha512-conflicting', /already exists with different contents/],
+      [{ error: { code: 'E401' } }, /Cannot check/],
+      [{ error: { code: 'ENETUNREACH' } }, /Cannot check/],
+    ]) {
+      json('registry.json', { ...registry, [`${names.at(-1)}@0.1.0`]: value });
+      const rejected = run();
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, message);
+      assert.ok(calls().every(args => args[0] === 'view'));
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
