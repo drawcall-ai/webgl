@@ -1,0 +1,72 @@
+name: Verify published package
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Published stable version (optional v prefix)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published stable version (optional v prefix)
+        required: true
+        type: string
+
+jobs:
+  registry-install:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+            image: node:22-bookworm-slim
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            image: node:22-bookworm-slim
+          - target: linuxmusl-x64
+            runner: ubuntu-24.04
+            image: node:22-alpine
+          - target: linuxmusl-arm64
+            runner: ubuntu-24.04-arm
+            image: node:22-alpine
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+          - target: win32-x64
+            runner: windows-2025
+          - target: win32-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: runner.os != 'Linux'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+      - name: Install Linux release with automatic native package selection
+        if: runner.os == 'Linux'
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$IMAGE" \
+            npm run test:package -- --version "${RELEASE_VERSION#v}" --repetitions 1
+      - name: Install desktop release with automatic native package selection
+        if: runner.os != 'Linux'
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm run test:package -- --version "${RELEASE_VERSION#v}" --repetitions 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-${{ matrix.target }}
+          path: test/out
