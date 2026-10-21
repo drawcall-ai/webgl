@@ -296,16 +296,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linuxmusl-arm64
-            runner: ubuntu-24.04-arm
-            image: node:22-alpine3.22
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-            image: node:22-bookworm-slim
-          - target: win32-arm64
-            runner: windows-11-arm
-    runs-on: ${{ matrix.runner }}
+        target: ${{ fromJSON(inputs.platforms == 'all' && '["linuxmusl-arm64","linux-arm64","win32-arm64"]' || format('["{0}"]', inputs.platforms)) }}
+    runs-on: ${{ matrix.target == 'win32-arm64' && 'windows-11-arm' || 'ubuntu-24.04-arm' }}
+    env:
+      STRESS_IMAGE: ${{ matrix.target == 'linuxmusl-arm64' && 'node:22-alpine3.22' || 'node:22-bookworm-slim' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -321,7 +315,7 @@ jobs:
           github-token: ${{ github.token }}
       - name: Stress fresh renders on small Linux VM
         if: runner.os == 'Linux'
-        run: docker run --rm --cpus 2 --memory 1g --memory-swap 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ matrix.target }} --repetitions 20
+        run: docker run --rm --cpus 2 --memory 1g --memory-swap 1g -v "$PWD:/work" -w /work "$STRESS_IMAGE" npm run test:package -- dist/${{ matrix.target }} --repetitions 20
       - name: Stress fresh renders on Windows ARM
         if: runner.os == 'Windows'
         run: npm run test:package -- dist/${{ matrix.target }} --repetitions 20
