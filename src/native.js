@@ -2,24 +2,19 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { nativeTarget } from './platform.js';
 
 const require = createRequire(import.meta.url);
 
 function directory() {
   if (process.env.DRAWCALL_WEBGPU_NATIVE) return resolve(process.env.DRAWCALL_WEBGPU_NATIVE);
-  const target = `${process.platform}-${process.arch}`;
-  if (!['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'].includes(target)) {
-    throw new Error(`@drawcall/webgpu has no native package for ${target}`);
-  }
+  const target = nativeTarget();
   const local = fileURLToPath(new URL(`../dist/${target}/`, import.meta.url));
   if (existsSync(join(local, 'dawn.node'))) return local;
   try {
     return dirname(require.resolve(`@drawcall/webgpu-${target}/package.json`));
   } catch (cause) {
     if (cause.code !== 'MODULE_NOT_FOUND') throw cause;
-    if (process.platform === 'linux' && !process.report.getReport().header.glibcVersionRuntime) {
-      throw new Error('@drawcall/webgpu Linux packages require glibc; this Node.js runtime reports no glibc. Musl-based systems such as Alpine are unsupported.', { cause });
-    }
     throw new Error(`Install @drawcall/webgpu-${target}; npm optional dependencies must be enabled`, { cause });
   }
 }

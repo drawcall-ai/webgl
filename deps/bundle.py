@@ -1,4 +1,4 @@
-"""Bundle Linux shared dependencies; glibc remains the host ABI baseline."""
+"""Bundle Linux shared dependencies, leaving only the host libc external."""
 import argparse
 import hashlib
 import json
@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+MUSL = re.compile(r"^(libc\.musl-(x86_64|aarch64)\.so\.1|ld-musl-(x86_64|aarch64)\.so\.1)$")
+
 GLIBC = re.compile(r"^(lib(c|m|mvec|dl|pthread|rt|resolv|util|anl|BrokenLocale)\.so\.|ld-linux)")
 
 
@@ -15,7 +17,26 @@ def capture(*args):
     return subprocess.check_output([str(arg) for arg in args], text=True)
 
 
+def is_musl():
+    return bool(list(Path("/lib").glob("ld-musl-*.so.1")))
+
+
+def musl_dependencies(binary):
+    # musl's ldd resolves symbols, so an addon without Node's N-API exports fails.
+    for name in capture("patchelf", "--print-needed", binary).splitlines():
+        if MUSL.fullmatch(name):
+            continue
+        paths = [binary.parent / name, Path("/lib") / name, Path("/usr/lib") / name]
+        dependency = next((path for path in paths if path.is_file()), None)
+        if dependency is None:
+            raise RuntimeError(f"Missing dependency: {binary} -> {name}")
+        yield dependency
+
+
 def dependencies(binary):
+    if is_musl():
+        yield from musl_dependencies(binary)
+        return
     output = capture("ldd", binary)
     if "not found" in output:
         raise RuntimeError(f"Missing dependencies for {binary}:\n{output}")
@@ -26,6 +47,8 @@ def dependencies(binary):
 
 
 def copyright_files(source):
+    if shutil.which("apk"):
+        raise RuntimeError(f"Unexpected Alpine shared dependency {source}; link it statically with its source notices")
     if shutil.which("rpm"):
         files = capture("rpm", "-q", "--licensefiles", "-f", Path(source).resolve()).splitlines()
         if not files:
@@ -81,6 +104,11 @@ def bundle(output):
     manifest["libraries"] = {
         name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in sorted(copied)
     }
+    if is_musl():
+        manifest["libc"] = "musl"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+        return
+    manifest["libc"] = "glibc"
     manifest["glibc"] = capture("getconf", "GNU_LIBC_VERSION").strip()
     requirements = set()
     for name in copied:

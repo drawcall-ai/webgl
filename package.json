@@ -21,9 +21,12 @@
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:cloud": "modal run test/cloud.py",
     "bench": "modal run test/cloud.py",
-    "test:package": "node deps/consumer.js"
+    "test:package": "node deps/consumer.js",
+    "release:prepare": "node deps/release.js prepare",
+    "release:publish": "node deps/release.js publish"
   },
   "dependencies": {
+    "detect-libc": "2.1.2",
     "sharp": "0.35.5"
   },
   "optionalDependencies": {
@@ -31,7 +34,10 @@
     "@drawcall/webgpu-linux-arm64": "0.1.0",
     "@drawcall/webgpu-darwin-x64": "0.1.0",
     "@drawcall/webgpu-darwin-arm64": "0.1.0",
-    "@drawcall/webgpu-win32-x64": "0.1.0"
+    "@drawcall/webgpu-win32-x64": "0.1.0",
+    "@drawcall/webgpu-linuxmusl-x64": "0.1.0",
+    "@drawcall/webgpu-linuxmusl-arm64": "0.1.0",
+    "@drawcall/webgpu-win32-arm64": "0.1.0"
   },
   "devDependencies": {
     "three": "0.186.1"

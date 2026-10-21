@@ -40,9 +40,12 @@ def target():
     systems = {"Linux": "linux", "Darwin": "darwin", "Windows": "win32"}
     architectures = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64"}
     system = systems.get(platform.system())
+    if system == "linux" and list(Path("/lib").glob("ld-musl-*.so.1")):
+        system = "linuxmusl"
     architecture = architectures.get(platform.machine().lower())
     name = f"{system}-{architecture}"
-    if name not in {"linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"}:
+    if name not in {"linux-x64", "linux-arm64", "linuxmusl-x64", "linuxmusl-arm64",
+                    "darwin-x64", "darwin-arm64", "win32-x64", "win32-arm64"}:
         raise RuntimeError(f"Unsupported build host: {platform.system()} {platform.machine()}")
     return name
 
@@ -54,7 +57,7 @@ def build_loader(source, work, output, host, jobs):
         "-DVULKAN_HEADERS_ENABLE_MODULE=OFF")
     run("cmake", "--install", work / "headers-build")
     options = []
-    if host.startswith("linux-"):
+    if host.startswith(("linux-", "linuxmusl-")):
         options = [f"-DBUILD_WSI_{surface}_SUPPORT=OFF" for surface in
                    ("XCB", "XLIB", "XLIB_XRANDR", "WAYLAND", "DIRECTFB")]
     elif host.startswith("darwin-"):
@@ -88,11 +91,11 @@ def build(work, output, jobs=4):
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
     patch(source)
     options = ["-DDAWN_ENABLE_SWIFTSHADER=OFF"]
-    if host.startswith("linux-"):
+    if host.startswith(("linux-", "linuxmusl-")):
         options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")
     if host.startswith("darwin-"):
         options.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5")
-    if host == "win32-x64":
+    if host.startswith("win32-"):
         options.extend(["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DABSL_MSVC_STATIC_RUNTIME=ON"])
     run("cmake", "-S", source, "-B", work / "build", "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_VISIBILITY_PRESET=hidden",

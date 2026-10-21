@@ -6,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from bundle import GLIBC
+from bundle import GLIBC, is_musl, musl_dependencies
 
 WINDOWS = {
     "advapi32.dll", "bcrypt.dll", "cfgmgr32.dll", "comdlg32.dll", "crypt32.dll", "dbghelp.dll",
@@ -25,6 +25,13 @@ def capture(*args):
 def linux(binary, directory):
     versions = re.findall(rb"GLIBC_(\d+\.\d+)", binary.read_bytes())
     required = max((tuple(map(int, value.split(b"."))) for value in versions), default=(0, 0))
+    if is_musl():
+        if versions:
+            raise RuntimeError(f"{binary.name} contains glibc requirements in a musl package")
+        for dependency in musl_dependencies(binary):
+            if dependency.resolve().parent != directory:
+                raise RuntimeError(f"Unbundled dependency: {binary.name} -> {dependency}")
+        return
     if required > (2, 28):
         raise RuntimeError(f"{binary.name} requires glibc {required}, exceeding the 2.28 baseline")
     output = capture("ldd", binary)

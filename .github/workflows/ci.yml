@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      musl-runners: ${{ steps.targets.outputs.musl-runners }}
+      has-musl: ${{ steps.targets.outputs.has-musl }}
       linux-runners: ${{ steps.targets.outputs.linux-runners }}
       desktop-platforms: ${{ steps.targets.outputs.desktop-platforms }}
       has-linux: ${{ steps.targets.outputs.has-linux }}
@@ -32,6 +34,9 @@ jobs:
           targets = [
               {"target": "linux-x64", "runner": "ubuntu-24.04", "container": "quay.io/pypa/manylinux_2_28_x86_64"},
               {"target": "linux-arm64", "runner": "ubuntu-24.04-arm", "container": "quay.io/pypa/manylinux_2_28_aarch64"},
+              {"target": "linuxmusl-x64", "runner": "ubuntu-24.04"},
+              {"target": "linuxmusl-arm64", "runner": "ubuntu-24.04-arm"},
+              {"target": "win32-arm64", "runner": "windows-11-arm"},
               {"target": "darwin-arm64", "runner": "macos-15"},
               {"target": "darwin-x64", "runner": "macos-15-intel"},
               {"target": "win32-x64", "runner": "windows-2025"},
@@ -43,9 +48,12 @@ jobs:
               targets = [item for item in targets if item["target"] in names]
           print("matrix=" + json.dumps({"include": targets}))
           linux = [item["runner"] for item in targets if item["target"].startswith("linux-")]
+          musl = [item["runner"] for item in targets if item["target"].startswith("linuxmusl-")]
+          print("musl-runners=" + json.dumps(musl))
+          print("has-musl=" + json.dumps(bool(musl)))
           compatibility = {"darwin-arm64": "macos-14", "win32-x64": "windows-2022"}
           desktop = [{"target": item["target"], "runner": compatibility.get(item["target"], item["runner"])}
-                     for item in targets if not item["target"].startswith("linux-")]
+                     for item in targets if not item["target"].startswith("linux")]
           print("linux-runners=" + json.dumps(linux))
           print("desktop-platforms=" + json.dumps(desktop))
           print("has-linux=" + json.dumps(bool(linux)))
@@ -66,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Linux build tools
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-')
         run: |
           dnf install -y bison flex clang patchelf pkgconf-pkg-config
           echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
@@ -88,14 +96,18 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install -y winflexbison3 --no-progress
       - uses: actions/setup-node@v4
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         with:
           node-version: 24
       - uses: actions/setup-go@v5
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         with:
           go-version: '1.24.2'
           cache: false
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.target == 'win32-arm64' && 'arm64' || 'x64' }}
       - name: Windows paths
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
@@ -104,18 +116,26 @@ jobs:
           path: build
           key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
           restore-keys: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}
+      - name: Build and test Alpine package
+        if: startsWith(matrix.target, 'linuxmusl-')
+        run: docker run --rm -v "$PWD:/work" -w /work node:22-alpine3.22 sh deps/alpine.sh ${{ matrix.target }}
       - name: Build native package
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python native/build.py build dist/${{ matrix.target }}
       - name: Build Mesa
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
       - name: Bundle Linux runtime
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-')
         run: python deps/bundle.py dist/${{ matrix.target }}
       - name: Package
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: node deps/package.js dist/${{ matrix.target }}
       - name: Audit runtime dependencies
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python deps/check.py dist/${{ matrix.target }}
       - name: Test installed packages
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: npm run test:package -- dist/${{ matrix.target }}
       - uses: actions/cache/save@v4
         if: always()
@@ -187,4 +207,29 @@ jobs:
         if: always()
         with:
           name: node-${{ matrix.node }}-${{ matrix.platform.target }}
+          path: test/out
+
+  clean-musl:
+    needs: [plan, native]
+    if: ${{ !cancelled() && needs.plan.outputs.has-musl == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(needs.plan.outputs.musl-runners) }}
+        node: [22, 24, 26]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Target
+        run: echo "TARGET=linuxmusl-$(node -p process.arch)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-${{ env.TARGET }}
+          path: dist/${{ env.TARGET }}
+      - name: Render in clean Alpine
+        run: docker run --rm -v "$PWD:/work" -w /work node:${{ matrix.node }}-alpine npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-${{ env.TARGET }}-node-${{ matrix.node }}
           path: test/out

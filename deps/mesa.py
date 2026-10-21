@@ -94,7 +94,7 @@ def notices(sources, output):
 def build(work, output, jobs):
     host = platform.system()
     target = {"x86_64": "X86", "amd64": "X86", "aarch64": "AArch64", "arm64": "AArch64"}.get(platform.machine().lower())
-    if host not in {"Linux", "Darwin", "Windows"} or target is None or (host == "Windows" and target != "X86"):
+    if host not in {"Linux", "Darwin", "Windows"} or target is None:
         raise RuntimeError(f"Unsupported Mesa build host: {host} {platform.machine()}")
     if jobs < 1:
         raise ValueError("Build jobs must be positive")
