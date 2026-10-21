@@ -51,6 +51,25 @@ def target():
 
 
 def build_loader(source, work, output, host, jobs):
+    if host == "win32-arm64":
+        # The pinned loader's ARM assembly contains C directives; armasm64 needs preprocessed input.
+        cmake = source / "third_party/vulkan-loader/src/loader/CMakeLists.txt"
+        original = cmake.with_suffix(".txt.platform-original")
+        if not original.exists():
+            original.write_bytes(cmake.read_bytes())
+        contents = original.read_text()
+        anchor = "            list(APPEND OPT_LOADER_SRCS unknown_ext_chain_marmasm.asm)"
+        if contents.count(anchor) != 1:
+            raise RuntimeError("Vulkan loader ARM preprocessing patch anchor must occur exactly once")
+        contents = contents.replace(anchor, """            set(ARM_ASSEMBLY ${CMAKE_CURRENT_BINARY_DIR}/unknown_ext_chain_preprocessed.asm)
+            add_custom_command(OUTPUT ${ARM_ASSEMBLY}
+                COMMAND ${CMAKE_C_COMPILER} /nologo /P /TC /Fi${ARM_ASSEMBLY}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/unknown_ext_chain_marmasm.asm
+                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/unknown_ext_chain_marmasm.asm
+                VERBATIM)
+            list(APPEND OPT_LOADER_SRCS ${ARM_ASSEMBLY})""")
+        if cmake.read_text() != contents:
+            cmake.write_text(contents)
     prefix = work / "vulkan-headers"
     run("cmake", "-S", source / "third_party/vulkan-headers/src", "-B", work / "headers-build",
         "-G", "Ninja", f"-DCMAKE_INSTALL_PREFIX={prefix}", "-DVULKAN_HEADERS_ENABLE_TESTS=OFF",
