@@ -63,7 +63,7 @@ def build_loader(source, work, output, host, jobs):
             raise RuntimeError("Vulkan loader ARM preprocessing patch anchor must occur exactly once")
         contents = contents.replace(anchor, """            set(ARM_ASSEMBLY ${CMAKE_CURRENT_BINARY_DIR}/unknown_ext_chain_preprocessed.asm)
             add_custom_command(OUTPUT ${ARM_ASSEMBLY}
-                COMMAND ${CMAKE_C_COMPILER} /nologo /P /TC /Fi${ARM_ASSEMBLY}
+                COMMAND ${CMAKE_C_COMPILER} /nologo /P /EP /TC /Fi${ARM_ASSEMBLY}
                     ${CMAKE_CURRENT_SOURCE_DIR}/unknown_ext_chain_marmasm.asm
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/unknown_ext_chain_marmasm.asm
                 VERBATIM)
