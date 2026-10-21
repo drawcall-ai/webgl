@@ -223,7 +223,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: ${{ fromJSON(needs.plan.outputs.musl-runners) }}
-        node: [22, 24, 26]
+        image: [node:22-alpine3.22, node:24-alpine, node:26-alpine]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -234,9 +234,9 @@ jobs:
           name: package-${{ env.TARGET }}
           path: dist/${{ env.TARGET }}
       - name: Render in clean Alpine
-        run: docker run --rm -v "$PWD:/work" -w /work node:${{ matrix.node }}-alpine npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
+        run: docker run --rm --cpus 2 --memory 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: clean-${{ env.TARGET }}-node-${{ matrix.node }}
+          name: clean-${{ env.TARGET }}-${{ strategy.job-index }}
           path: test/out

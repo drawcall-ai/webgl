@@ -125,3 +125,34 @@ test('publishing resumes matching packages and rejects conflicts or registry err
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('trust configures precisely these nine packages and dry-run invokes no external command', () => {
+  const root = mkdtempSync(join(tmpdir(), 'webgpu-trust-test-'));
+  try {
+    mkdirSync(join(root, 'deps'));
+    copyFileSync(new URL('../../deps/release.js', import.meta.url), join(root, 'deps/release.js'));
+    const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url)));
+    writeFileSync(join(root, 'package.json'), JSON.stringify(manifest));
+    writeFileSync(join(root, 'npm.js'), `
+      import { appendFileSync } from 'node:fs';
+      appendFileSync('calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
+    `);
+    const log = join(root, 'calls.jsonl');
+    writeFileSync(log, '');
+    const run = (...args) => spawnSync(process.execPath, ['deps/release.js', 'trust', ...args], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, npm_execpath: join(root, 'npm.js') },
+    });
+    const expected = [...Object.keys(manifest.optionalDependencies), manifest.name].map(name => [
+      'trust', 'github', name, '--repo', 'drawcall-ai/webgl', '--file', 'publish-package.yml', '--allow-publish', '--yes',
+    ]);
+    const dry = run('--dry-run');
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.equal(readFileSync(log, 'utf8'), '');
+    assert.deepEqual(dry.stdout.trim().split('\n'), expected.map(args => `npm ${args.join(' ')}`));
+    const configured = run();
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)), expected);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -7,16 +7,17 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { setTimeout } from 'node:timers/promises';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: { 'dry-run': { type: 'boolean', default: false } },
 });
 const [command, version] = positionals;
-assert.ok(['prepare', 'publish'].includes(command), 'Usage: npm run release:prepare -- VERSION, or npm run release:publish -- [--dry-run]');
+assert.ok(['prepare', 'publish', 'trust'].includes(command), 'Usage: npm run release:prepare -- VERSION, or npm run release:publish/release:trust -- [--dry-run]');
 assert.equal(positionals.length, command === 'prepare' ? 2 : 1);
 const npm = process.env.npm_execpath;
-assert.ok(npm, 'Invoke through npm run release:prepare or npm run release:publish');
+assert.ok(npm, 'Invoke through an npm run release:* script');
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = join(root, 'dist/release');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json')));
@@ -119,5 +120,20 @@ function publish() {
   }
 }
 
+// Run after initial publication with npm >=11.15 and an account with 2FA enabled.
+async function trust() {
+  const repository = manifest.repository.url.match(/^git\+https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\.git$/);
+  assert.ok(repository, 'Trusted publishing requires a GitHub repository URL');
+  for (const [index, name] of names.entries()) {
+    const args = ['trust', 'github', name, '--repo', repository[1], '--file', 'publish-package.yml', '--allow-publish', '--yes'];
+    console.log(`npm ${args.join(' ')}`);
+    if (values['dry-run']) continue;
+    // npm recommends spacing bulk trust requests to avoid registry rate limits.
+    if (index > 0) await setTimeout(2000);
+    run(args);
+  }
+}
+
 if (command === 'prepare') await prepare();
+else if (command === 'trust') await trust();
 else publish();
