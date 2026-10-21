@@ -161,7 +161,7 @@ jobs:
         if: always() && startsWith(matrix.target, 'linuxmusl-')
         run: sudo chown -R "$(id -u):$(id -g)" .
       - uses: actions/cache/save@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           path: build
           key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
