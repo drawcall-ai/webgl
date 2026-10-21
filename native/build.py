@@ -134,7 +134,7 @@ def build(work, output, jobs=4):
     build_loader(source, work, output, host, jobs)
     manifest = {"target": host, "driver": "mesa", "dawn": DAWN, "gpuweb": GPUWEB, "nodeApiHeaders": HEADERS, "nodeAddonApi": ADDON,
                 "sha256": hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest(),
-                "patch": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                "sources": {f"native/{p.name}": hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (Path(__file__).parent / name for name in
                                     ("build.py", "patch.py", "bitmap.h", "factory.cpp", "queue.cpp", "driver.cpp"))}}
     manifest["libraries"] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir()

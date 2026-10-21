@@ -79,6 +79,43 @@ def meson(source, build, prefix, jobs, options):
     run("ninja", "-C", build, "-j", jobs, "install")
 
 
+def replace(path, replacements):
+    original = path.with_suffix(path.suffix + ".platform-original")
+    if not original.exists():
+        original.write_bytes(path.read_bytes())
+    contents = original.read_text()
+    for old, new in replacements.items():
+        if contents.count(old) != 1:
+            raise RuntimeError(f"Patch anchor must occur exactly once in {path}: {old}")
+        contents = contents.replace(old, new)
+    if path.read_text() != contents:
+        path.write_text(contents)
+
+
+def patch(sources, host):
+    replace(sources["mesa"] / "src/gallium/auxiliary/gallivm/lp_bld_misc.cpp", {
+        "#include <llvm/Target/TargetOptions.h>":
+            "#include <llvm/Target/TargetOptions.h>\n#include <llvm/Target/TargetMachine.h>",
+        "   JIT = builder.create();": """#if DETECT_ARCH_AARCH64
+   // JIT code and constants can lie beyond ADRP's range (e.g. across V8's address reservation).
+   // LLVM 19 GlobalISel ignores Large for constant pools; SelectionDAG handles full addresses.
+   builder.setCodeModel(CodeModel::Large);
+   TargetMachine *target = builder.selectTarget();
+   if (target)
+      target->setGlobalISel(false);
+   JIT = builder.create(target);
+#else
+   JIT = builder.create();
+#endif""",
+    })
+    if host == "Windows":
+        # Mesa's Windows MCJIT uses ELF, which supports the absolute relocations needed by Large.
+        replace(sources["llvm"] / "llvm/lib/Target/AArch64/AArch64TargetMachine.cpp", {
+            "  // AArch64 Darwin and Windows are always PIC.\n  if (TT.isOSDarwin() || TT.isOSWindows())":
+                "  // Darwin and Windows COFF require PIC; ELF MCJIT can use absolute addresses.\n"
+                "  if (TT.isOSDarwin() || (TT.isOSWindows() && !TT.isOSBinFormatELF()))",
+        })
+
 def notices(sources, output):
     with (output / "MESA_NOTICES").open("w", encoding="utf-8") as stream:
         for source in sources:
@@ -115,6 +152,7 @@ def build(work, output, jobs):
         options = ["-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
     sources = {name: fetch(name, work) for name in SOURCES
                if (name != "libdrm" or host == "Linux") and (name != "directx" or host == "Windows")}
+    patch(sources, host)
     cmake(sources["llvm"] / "llvm", work / "llvm-build", prefix, jobs, [
         f"-DLLVM_TARGETS_TO_BUILD={target}", "-DLLVM_BUILD_TOOLS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
         "-DLLVM_INCLUDE_EXAMPLES=OFF", "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_INCLUDE_DOCS=OFF",
@@ -168,6 +206,7 @@ def build(work, output, jobs):
     shutil.copy2(libraries[0], output / driver)
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
+    manifest["sources"]["deps/mesa.py"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     manifest["mesa"] = {name: {"url": SOURCES[name][0], "sha256": SOURCES[name][1]} for name in sources}
     manifest.setdefault("libraries", {})[driver] = hashlib.sha256((output / driver).read_bytes()).hexdigest()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

@@ -18,6 +18,9 @@ test('release preparation rejects stale binaries, packs all targets, and detects
     for (const directory of ['deps', 'src', 'skills/webgpu', 'native']) mkdirSync(join(root, directory), { recursive: true });
     copyFileSync(new URL('../../deps/release.js', import.meta.url), join(root, 'deps/release.js'));
     write('native/driver.cpp', 'current source');
+    write('native/build.py', 'native build');
+    write('deps/mesa.py', 'mesa build');
+    write('deps/bundle.py', 'bundle build');
     write('src/index.js', 'export const fixture = true;');
     write('skills/webgpu/SKILL.md', 'Fixture skill');
     write('README.md', 'Fixture');
@@ -34,7 +37,10 @@ test('release preparation rejects stale binaries, packs all targets, and detects
       write(`${directory}/dawn.node`, 'fixture binary');
       for (const file of ['LICENSE', 'DAWN_NOTICES', 'MESA_NOTICES', 'THIRD_PARTY_NOTICES']) write(`${directory}/${file}`, 'Fixture notice');
       json(`${directory}/build.json`, {
-        target, driver: 'mesa', patch: { 'driver.cpp': digest('current source') },
+        target, driver: 'mesa', sources: {
+          'native/driver.cpp': digest('current source'), 'native/build.py': digest('native build'),
+          'deps/mesa.py': digest('mesa build'), 'deps/bundle.py': digest('bundle build'),
+        },
         libraries: { 'dawn.node': digest('fixture binary') },
       });
     }
@@ -43,6 +49,16 @@ test('release preparation rejects stale binaries, packs all targets, and detects
     write('native/driver.cpp', 'changed source');
     assert.match(run('prepare', '0.2.0').stderr, /Rebuild .*driver.cpp changed/);
     write('native/driver.cpp', 'current source');
+    write('deps/mesa.py', 'fixed Mesa build');
+    assert.match(run('prepare', '0.2.0').stderr, /Rebuild .*deps\/mesa.py changed/);
+    write('deps/mesa.py', 'mesa build');
+    const firstBuild = join(root, 'dist', names[0].slice('@drawcall/webgpu-'.length), 'build.json');
+    const build = JSON.parse(readFileSync(firstBuild));
+    const missing = structuredClone(build);
+    delete missing.sources['deps/mesa.py'];
+    writeFileSync(firstBuild, JSON.stringify(missing));
+    assert.match(run('prepare', '0.2.0').stderr, /missing source provenance for deps\/mesa.py/);
+    writeFileSync(firstBuild, JSON.stringify(build));
     const prepared = run('prepare', '0.2.0');
     assert.equal(prepared.status, 0, prepared.stderr);
     assert.equal(readFileSync(join(root, 'package.json'), 'utf8'), original);

@@ -100,6 +100,7 @@ def bundle(output):
             stream.write(path.read_text())
     manifest_path = output / "build.json"
     manifest = json.loads(manifest_path.read_text())
+    manifest["sources"]["deps/bundle.py"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     manifest["sha256"] = hashlib.sha256((output / "dawn.node").read_bytes()).hexdigest()
     manifest["libraries"] = {
         name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in sorted(copied)

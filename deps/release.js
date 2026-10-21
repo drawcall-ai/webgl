@@ -44,8 +44,10 @@ async function prepare() {
     assert.equal(packageJson.name, name, `Wrong package in ${directory}`);
     assert.equal(build.target, target, `Wrong binary target in ${directory}`);
     assert.equal(build.driver, 'mesa');
-    for (const [file, checksum] of Object.entries(build.patch)) {
-      assert.equal(hash(join(root, 'native', file)), checksum, `Rebuild ${target}: native/${file} changed`);
+    const required = ['native/build.py', 'deps/mesa.py', ...(target.startsWith('linux') ? ['deps/bundle.py'] : [])];
+    for (const file of required) assert.ok(Object.hasOwn(build.sources, file), `${target}: missing source provenance for ${file}`);
+    for (const [file, checksum] of Object.entries(build.sources)) {
+      assert.equal(hash(join(root, file)), checksum, `Rebuild ${target}: ${file} changed`);
     }
     for (const [file, checksum] of Object.entries(build.libraries)) {
       assert.equal(hash(join(directory, file)), checksum, `${target}/${file} checksum mismatch`);
