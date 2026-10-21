@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: { 'dry-run': { type: 'boolean', default: false } },
+});
+const [command, version] = positionals;
+assert.ok(['prepare', 'publish'].includes(command), 'Usage: npm run release:prepare -- VERSION, or npm run release:publish -- [--dry-run]');
+assert.equal(positionals.length, command === 'prepare' ? 2 : 1);
+const npm = process.env.npm_execpath;
+assert.ok(npm, 'Invoke through npm run release:prepare or npm run release:publish');
+const root = fileURLToPath(new URL('../', import.meta.url));
+const output = join(root, 'dist/release');
+const manifest = JSON.parse(readFileSync(join(root, 'package.json')));
+const names = [...Object.keys(manifest.optionalDependencies), manifest.name];
+
+function hash(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
+function run(args, capture = false) {
+  return execFileSync(process.execPath, [npm, ...args], {
+    cwd: root, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+  });
+}
+
+async function prepare() {
+  assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Expected a stable release version such as 0.1.0');
+  assert.ok(!values['dry-run'], 'Preparation does not publish; --dry-run only applies to publish');
+  const native = names.slice(0, -1).map(name => {
+    const target = name.slice(`${manifest.name}-`.length);
+    const directory = join(root, 'dist', target);
+    const packageJson = JSON.parse(readFileSync(join(directory, 'package.json')));
+    const build = JSON.parse(readFileSync(join(directory, 'build.json')));
+    assert.equal(packageJson.name, name, `Wrong package in ${directory}`);
+    assert.equal(build.target, target, `Wrong binary target in ${directory}`);
+    assert.equal(build.driver, 'mesa');
+    for (const [file, checksum] of Object.entries(build.patch)) {
+      assert.equal(hash(join(root, 'native', file)), checksum, `Rebuild ${target}: native/${file} changed`);
+    }
+    for (const [file, checksum] of Object.entries(build.libraries)) {
+      assert.equal(hash(join(directory, file)), checksum, `${target}/${file} checksum mismatch`);
+    }
+    for (const file of ['LICENSE', 'DAWN_NOTICES', 'MESA_NOTICES', 'THIRD_PARTY_NOTICES']) {
+      assert.ok(existsSync(join(directory, file)), `${target}/${file} missing`);
+    }
+    return { directory, packageJson };
+  });
+
+  // Validate every platform before replacing a previously prepared release.
+  rmSync(output, { recursive: true, force: true });
+  mkdirSync(output, { recursive: true });
+  const stage = mkdtempSync(join(tmpdir(), 'webgpu-release-'));
+  const packages = [];
+  try {
+    const main = join(stage, 'main');
+    mkdirSync(main);
+    for (const file of [...manifest.files, 'README.md', 'LICENSE']) {
+      await cp(join(root, file), join(main, file), { recursive: true });
+    }
+    manifest.optionalDependencies = Object.fromEntries(names.slice(0, -1).map(name => [name, version]));
+    for (const { directory, packageJson } of [...native, { directory: main, packageJson: manifest }]) {
+      // Native artifacts are disposable CI output; the source package.json stays untouched.
+      writeFileSync(join(directory, 'package.json'), `${JSON.stringify({ ...packageJson, version }, null, 2)}\n`);
+      const [packed] = JSON.parse(run(['pack', directory, '--ignore-scripts', '--json', '--pack-destination', output], true));
+      packages.push({ name: packed.name, file: packed.filename, sha256: hash(join(output, packed.filename)) });
+    }
+    writeFileSync(join(output, 'release.json'), `${JSON.stringify({ version, packages }, null, 2)}\n`);
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+  console.log(`Prepared ${packages.length} packages in ${output}; nothing published.`);
+}
+
+function publish() {
+  const release = JSON.parse(readFileSync(join(output, 'release.json')));
+  assert.deepEqual(release.packages.map(item => item.name), names, 'Prepared release does not match this package set');
+  for (const item of release.packages) {
+    assert.equal(basename(item.file), item.file, 'Tarballs must be inside dist/release');
+    assert.equal(hash(join(output, item.file)), item.sha256, `${item.file} checksum mismatch`);
+  }
+  for (const item of release.packages) {
+    run(['publish', join(output, item.file), '--access', 'public', '--tag', 'latest',
+      ...(process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : []),
+      ...(values['dry-run'] ? ['--dry-run'] : [])]);
+  }
+}
+
+if (command === 'prepare') await prepare();
+else publish();

@@ -3,6 +3,10 @@ on:
   push:
     tags: ['v*']
 
+concurrency:
+  group: publish-webgpu
+  cancel-in-progress: false
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
@@ -18,31 +22,25 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
+      - run: npm install --global npm@11.19.0
       - uses: actions/download-artifact@v4
         with:
           pattern: package-*
           path: dist
-      - name: Set release version
+      - name: Prepare all release tarballs
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version="${RELEASE_TAG#v}"
-          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo 'Expected a stable release tag such as v0.1.0' >&2
-            exit 1
-          fi
-          npm pkg set version="$version"
-          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
-            mv "dist/package-$target" "dist/$target"
-            npm pkg set "optionalDependencies.@drawcall/webgpu-$target=$version"
-            npm --prefix "dist/$target" pkg set version="$version"
+          for directory in dist/package-*; do
+            mv "$directory" "dist/${directory#dist/package-}"
           done
-      - name: Publish native packages
-        run: |
-          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
-            npm publish "./dist/$target" --access public --provenance
-          done
-      - run: npm publish --access public --provenance
+          npm run release:prepare -- "${RELEASE_TAG#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/release
+      - name: Publish native packages, then main package
+        run: npm run release:publish
 
   registry-install:
     needs: publish
@@ -54,28 +52,45 @@ jobs:
         include:
           - target: linux-x64
             runner: ubuntu-24.04
-            container: node:24-bookworm-slim
+            image: node:22-bookworm-slim
           - target: linux-arm64
             runner: ubuntu-24.04-arm
-            container: node:24-bookworm-slim
+            image: node:22-bookworm-slim
+          - target: linuxmusl-x64
+            runner: ubuntu-24.04
+            image: node:22-alpine
+          - target: linuxmusl-arm64
+            runner: ubuntu-24.04-arm
+            image: node:22-alpine
           - target: darwin-arm64
             runner: macos-15
           - target: darwin-x64
             runner: macos-15-intel
           - target: win32-x64
             runner: windows-2025
+          - target: win32-arm64
+            runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        if: runner.os != 'Linux'
         with:
-          node-version: 24
+          node-version: 22
           registry-url: https://registry.npmjs.org/
-      - name: Install release with automatic native package selection
+      - name: Install Linux release with automatic native package selection
+        if: runner.os == 'Linux'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$IMAGE" \
+            npm run test:package -- --version "${RELEASE_TAG#v}" --repetitions 1
+      - name: Install desktop release with automatic native package selection
+        if: runner.os != 'Linux'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: npm run test:package -- --version "${RELEASE_TAG#v}" --repetitions 1

@@ -23,7 +23,8 @@
     "bench": "modal run test/cloud.py",
     "test:package": "node deps/consumer.js",
     "release:prepare": "node deps/release.js prepare",
-    "release:publish": "node deps/release.js publish"
+    "release:publish": "node deps/release.js publish",
+    "test:release": "node --test test/tools/release.test.js"
   },
   "dependencies": {
     "detect-libc": "2.1.2",

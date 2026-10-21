@@ -25,6 +25,8 @@ jobs:
       has-linux: ${{ steps.targets.outputs.has-linux }}
       has-desktop: ${{ steps.targets.outputs.has-desktop }}
     steps:
+      - uses: actions/checkout@v4
+      - run: npm run test:release
       - id: targets
         env:
           PLATFORMS: ${{ inputs.platforms || 'all' }}
@@ -131,6 +133,11 @@ jobs:
       - name: Package
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: node deps/package.js dist/${{ matrix.target }}
+      - name: Verify native architecture
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: node --input-type=module -e 'import assert from "node:assert/strict"; import fs from "node:fs"; const target=process.env.TARGET; assert.equal(JSON.parse(fs.readFileSync("dist/"+target+"/build.json")).target,target); assert.equal(process.arch,target.split("-").at(-1));'
       - name: Audit runtime dependencies
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python deps/check.py dist/${{ matrix.target }}

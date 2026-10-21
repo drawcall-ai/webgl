@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 apk add --no-cache build-base linux-headers python3 python3-dev py3-pip cmake ninja git curl tar xz bison flex clang patchelf pkgconf go
+git config --global --add safe.directory /work
+export GOTOOLCHAIN=auto
 python3 -m venv /opt/build-tools
 . /opt/build-tools/bin/activate
 pip install meson==1.7.0 mako pyyaml packaging
