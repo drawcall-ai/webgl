@@ -17,6 +17,9 @@ for (const scene of SCENES) {
       const { stdout } = await execute(process.execPath, ['test/render.js', scene, output], { cwd, timeout: 90000 });
       const { hash } = JSON.parse(stdout);
       await execute(process.execPath, ['test/verify.js', scene, output, hash], { cwd, timeout: 20000 });
+    } catch (error) {
+      console.error({ scene, code: error.code, signal: error.signal, killed: error.killed });
+      throw error;
     } finally { await rm(directory, { recursive: true }); }
   });
 }
