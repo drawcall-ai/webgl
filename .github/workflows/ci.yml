@@ -251,7 +251,7 @@ jobs:
           name: package-${{ env.TARGET }}
           path: dist/${{ env.TARGET }}
       - name: Render in clean Alpine
-        run: docker run --rm --cpus 2 --memory 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
+        run: docker run --rm --cpus 2 --memory 1g --memory-swap 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ env.TARGET }} --repetitions 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -318,7 +318,7 @@ jobs:
           github-token: ${{ github.token }}
       - name: Stress fresh renders on small Linux VM
         if: runner.os == 'Linux'
-        run: docker run --rm --cpus 2 --memory 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ matrix.target }} --repetitions 20
+        run: docker run --rm --cpus 2 --memory 1g --memory-swap 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ matrix.target }} --repetitions 20
       - name: Stress fresh renders on Windows ARM
         if: runner.os == 'Windows'
         run: npm run test:package -- dist/${{ matrix.target }} --repetitions 20
