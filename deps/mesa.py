@@ -116,6 +116,19 @@ def patch(sources, host):
                 "  if (TT.isOSDarwin() || (TT.isOSWindows() && !TT.isOSBinFormatELF()))",
         })
 
+        replace(sources["llvm"] / "llvm/lib/Target/AArch64/MCTargetDesc/AArch64ELFObjectWriter.cpp", {
+            '#include "llvm/Support/ErrorHandling.h"':
+                '#include "llvm/Support/ErrorHandling.h"\n#include "llvm/Support/raw_ostream.h"',
+            '      Ctx.reportError(Fixup.getLoc(),\n                      "invalid fixup for add (uimm12) instruction");':
+                '''      errs() << "ADD fixup: ";
+      Fixup.getValue()->print(errs(), nullptr);
+      errs() << " RefKind=" << unsigned(RefKind) << " SymLoc=" << unsigned(SymLoc)
+             << " IsNC=" << IsNC << "\\n";
+      Ctx.reportError(Fixup.getLoc(),
+                      "invalid fixup for add (uimm12) instruction");''',
+        })
+
+
 def notices(sources, output):
     with (output / "MESA_NOTICES").open("w", encoding="utf-8") as stream:
         for source in sources:
