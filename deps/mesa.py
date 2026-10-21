@@ -116,17 +116,41 @@ def patch(sources, host):
                 "  if (TT.isOSDarwin() || (TT.isOSWindows() && !TT.isOSBinFormatELF()))",
         })
 
-        replace(sources["llvm"] / "llvm/lib/Target/AArch64/MCTargetDesc/AArch64ELFObjectWriter.cpp", {
-            '#include "llvm/Support/ErrorHandling.h"':
-                '#include "llvm/Support/ErrorHandling.h"\n#include "llvm/Support/raw_ostream.h"',
-            '      Ctx.reportError(Fixup.getLoc(),\n                      "invalid fixup for add (uimm12) instruction");':
-                '''      errs() << "ADD fixup: ";
-      Fixup.getValue()->print(errs(), nullptr);
-      errs() << " RefKind=" << unsigned(RefKind) << " SymLoc=" << unsigned(SymLoc)
-             << " IsNC=" << IsNC << "\\n";
-      Ctx.reportError(Fixup.getLoc(),
-                      "invalid fixup for add (uimm12) instruction");''',
+        replace(sources["llvm"] / "llvm/lib/Target/AArch64/AArch64FrameLowering.cpp", {
+            '''      BuildMI(MBB, MBBI, DL, TII->get(AArch64::MOVaddrEXT))
+          .addReg(AArch64::X16, RegState::Define)
+          .addExternalSymbol(ChkStk)
+          .addExternalSymbol(ChkStk)
+          .setMIFlags(MachineInstr::FrameSetup);''':
+                '''      if (Subtarget.isTargetELF()) {
+        // Large ELF cannot address __chkstk with the ADRP+ADD used by COFF.
+        const unsigned Flags[] = {AArch64II::MO_G0 | AArch64II::MO_NC,
+                                  AArch64II::MO_G1 | AArch64II::MO_NC,
+                                  AArch64II::MO_G2 | AArch64II::MO_NC,
+                                  AArch64II::MO_G3};
+        for (unsigned I = 0; I != 4; ++I) {
+          auto MIB = BuildMI(MBB, MBBI, DL,
+                             TII->get(I == 0 ? AArch64::MOVZXi : AArch64::MOVKXi),
+                             AArch64::X16);
+          if (I != 0)
+            MIB.addReg(AArch64::X16);
+          MIB.addExternalSymbol(ChkStk, Flags[I])
+              .addImm(I * 16)
+              .setMIFlags(MachineInstr::FrameSetup);
+          // The existing post-sequence SEH_Nop accounts for the final move.
+          if (NeedsWinCFI && I != 3)
+            BuildMI(MBB, MBBI, DL, TII->get(AArch64::SEH_Nop))
+                .setMIFlag(MachineInstr::FrameSetup);
+        }
+      } else {
+        BuildMI(MBB, MBBI, DL, TII->get(AArch64::MOVaddrEXT))
+            .addReg(AArch64::X16, RegState::Define)
+            .addExternalSymbol(ChkStk)
+            .addExternalSymbol(ChkStk)
+            .setMIFlags(MachineInstr::FrameSetup);
+      }''',
         })
+
 
 
 def notices(sources, output):
