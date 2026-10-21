@@ -9,12 +9,22 @@ on:
       platforms:
         description: Comma-separated native targets, or all
         default: all
+      diagnostic-run:
+        description: Existing run ID containing a musl package to debug
+        type: string
+      diagnostic-target:
+        description: Architecture of the preserved musl package
+        type: choice
+        options: [arm64, x64]
+        default: arm64
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   plan:
+    if: ${{ !inputs.diagnostic-run }}
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -243,4 +253,34 @@ jobs:
         if: always()
         with:
           name: clean-${{ env.TARGET }}-${{ strategy.job-index }}
+          path: test/out
+
+  diagnostic:
+    if: ${{ inputs.diagnostic-run != '' }}
+    runs-on: ${{ inputs.diagnostic-target == 'x64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-linuxmusl-${{ inputs.diagnostic-target }}
+          path: dist/linuxmusl-${{ inputs.diagnostic-target }}
+          run-id: ${{ inputs.diagnostic-run }}
+          github-token: ${{ github.token }}
+      - name: Capture Tokyo native crash
+        run: |
+          mkdir -p test/out
+          docker run --rm -i --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v "$PWD:/work" -w /work node:22-alpine3.22 sh <<'SH' 2>&1 | tee test/out/native-debug.log
+          set -eu
+          apk add --no-cache gdb
+          npm ci --ignore-scripts
+          gdb --batch -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint pass' \
+            -ex run -ex 'p $_siginfo' -ex 'info registers' -ex 'bt 50' \
+            -ex 'thread apply all bt 12' -ex 'info proc mappings' \
+            --args node test/render.js tokyo test/out/tokyo-debug.png
+          SH
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnostic-linuxmusl-${{ inputs.diagnostic-target }}
           path: test/out
