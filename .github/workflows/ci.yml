@@ -9,6 +9,9 @@ on:
       platforms:
         description: Comma-separated native targets, or all
         default: all
+      stress-run:
+        description: Existing run ID containing ARM packages for fresh-process stress tests
+        type: string
       diagnostic-run:
         description: Existing run ID containing a musl package to debug
         type: string
@@ -24,7 +27,7 @@ permissions:
 
 jobs:
   plan:
-    if: ${{ !inputs.diagnostic-run }}
+    if: ${{ !inputs.diagnostic-run && !inputs.stress-run }}
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -283,4 +286,44 @@ jobs:
         if: always()
         with:
           name: diagnostic-linuxmusl-${{ inputs.diagnostic-target }}
+          path: test/out
+
+  stress:
+    if: ${{ inputs.stress-run != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linuxmusl-arm64
+            runner: ubuntu-24.04-arm
+            image: node:22-alpine3.22
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            image: node:22-bookworm-slim
+          - target: win32-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Windows'
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          path: dist/${{ matrix.target }}
+          run-id: ${{ inputs.stress-run }}
+          github-token: ${{ github.token }}
+      - name: Stress fresh renders on small Linux VM
+        if: runner.os == 'Linux'
+        run: docker run --rm --cpus 2 --memory 1g -v "$PWD:/work" -w /work ${{ matrix.image }} npm run test:package -- dist/${{ matrix.target }} --repetitions 20
+      - name: Stress fresh renders on Windows ARM
+        if: runner.os == 'Windows'
+        run: npm run test:package -- dist/${{ matrix.target }} --repetitions 20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-${{ matrix.target }}
           path: test/out
