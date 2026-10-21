@@ -127,17 +127,20 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
       - uses: actions/cache/restore@v4
+        id: cache
         with:
           path: build
-          key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
+          key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ hashFiles('native/*.py', 'native/*.cpp', 'native/*.h', 'deps/*.py', 'deps/*.sh', '.github/workflows/ci.yml') }}
           restore-keys: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}
       - name: Build and test Alpine package
+        id: alpine
         if: startsWith(matrix.target, 'linuxmusl-')
         run: docker run --rm -v "$PWD:/work" -w /work node:22-alpine3.22 sh deps/alpine.sh ${{ matrix.target }}
       - name: Build native package
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python native/build.py build dist/${{ matrix.target }}
       - name: Build Mesa
+        id: mesa
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         run: python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
       - name: Bundle Linux runtime
@@ -161,10 +164,10 @@ jobs:
         if: always() && startsWith(matrix.target, 'linuxmusl-')
         run: sudo chown -R "$(id -u):$(id -g)" .
       - uses: actions/cache/save@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.cache.outputs.cache-hit != 'true' && (steps.mesa.outcome == 'success' || steps.alpine.outcome == 'success') }}
         with:
           path: build
-          key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ github.run_id }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
