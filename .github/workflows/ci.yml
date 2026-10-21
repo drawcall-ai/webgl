@@ -274,7 +274,7 @@ jobs:
           set -eu
           apk add --no-cache gdb
           npm ci --ignore-scripts
-          gdb --batch -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint pass' \
+          gdb --batch -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint pass' -ex 'handle SIGILL nostop noprint pass' \
             -ex run -ex 'p $_siginfo' -ex 'info registers' -ex 'bt 50' \
             -ex 'thread apply all bt 12' -ex 'info proc mappings' \
             --args node test/render.js tokyo test/out/tokyo-debug.png
